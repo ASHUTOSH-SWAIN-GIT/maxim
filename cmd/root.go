@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/ASHUTOSH-SWAIN-GIT/maxim/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -13,7 +14,30 @@ var rootCmd = &cobra.Command{
 	Long: `A fast and modern TUI for interacting with your databases
 directly from the terminal.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		cmd.Help()
+		choice, err := tui.RunMainMenu()
+		if err != nil {
+			fmt.Printf("Error running main menu: %v\n", err)
+			os.Exit(1)
+		}
+
+		switch choice {
+		case 0:
+			// Open the Connect form
+			if model, err := tui.RunConnectForm(); err != nil {
+				fmt.Printf("Error running connect form: %v\n", err)
+			} else if model.Quitting {
+				// user cancelled; do nothing
+			}
+		case 1:
+			// Open the Create DB form
+			if model, err := tui.RunCreateForm(); err != nil {
+				fmt.Printf("Error running create form: %v\n", err)
+			} else if model.Quitting {
+				// user cancelled; do nothing
+			}
+		case 2:
+			fmt.Println("TODO: Execute 'list all dbs' logic here.")
+		}
 	},
 }
 
