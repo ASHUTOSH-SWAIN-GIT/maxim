@@ -89,7 +89,7 @@ func (m CreateFormModel) View() string {
 	var b strings.Builder
 	b.WriteString("Enter Details for New Database and User\n\n")
 
-	labels := []string{"Database Name: ", "New Username:  ", "New Password:  "}
+	labels := []string{"Database Name: ", "Username:      ", "Password:      "}
 	for i := range m.Inputs {
 		b.WriteString(labels[i])
 		b.WriteString(m.Inputs[i].View())

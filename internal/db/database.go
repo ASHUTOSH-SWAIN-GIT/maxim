@@ -12,12 +12,13 @@ func ConnectAndVerify(dbType, user, password, host, port, dbname string) (*sql.D
 	var dsn string
 	driverName := dbType
 
-	if dbType == "psql" {
+	switch dbType {
+	case "psql":
 		driverName = "postgres"
 		dsn = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbname)
-	} else if dbType == "mysql" {
+	case "mysql":
 		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", user, password, host, port, dbname)
-	} else {
+	default:
 		return nil, fmt.Errorf("unsupported database type: %s", dbType)
 	}
 
