@@ -48,3 +48,25 @@ func CreateDBAndUser(adminDB *sql.DB, dbType, dbName, newUser, newPassword strin
 	}
 	return nil
 }
+
+func ListDatabases(db *sql.DB) ([]string, error) {
+	query := "SELECT datname FROM pg_database WHERE datistemplate = false;"
+
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var dbNames []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		dbNames = append(dbNames, name)
+	}
+
+	return dbNames, nil
+
+}

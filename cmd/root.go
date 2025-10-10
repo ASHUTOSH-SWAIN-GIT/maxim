@@ -84,4 +84,5 @@ func init() {
 	rootCmd.AddCommand(dbCmd)
 	dbCmd.AddCommand(connectCmd)
 	dbCmd.AddCommand(createCmd)
+	dbCmd.AddCommand(listCmd)
 }
