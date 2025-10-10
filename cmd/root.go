@@ -23,29 +23,20 @@ directly from the terminal.`,
 
 		switch choice {
 		case 0:
-			// Connect flow (same as cmd/connect.go)
-			result, err := tui.RunConnectForm()
+			// Connect flow - use same credential management as other operations
+			adminDB, err := getAdminConnection()
 			if err != nil {
-				fmt.Printf("Error: could not open connect form: %v\n", err)
+				fmt.Printf("Error: %v\n", err)
 				os.Exit(1)
 			}
-			if result.Quitting {
-				fmt.Println("Cancelled: connection aborted by user.")
-				return
-			}
-			conn, err := db.ConnectAndVerify("psql", result.User, result.Password, "localhost", result.Port, result.DBName)
-			if err != nil {
-				fmt.Printf("Error: connection failed: %v\n", err)
-				os.Exit(1)
-			}
-			defer conn.Close()
-			fmt.Printf("Success: connected to Postgres at localhost:%s as %s (db %s).\n", result.Port, result.User, result.DBName)
+			defer adminDB.Close()
+
+			fmt.Printf("Success: connected to Postgres superuser.\n")
 		case 1:
-			// Create flow (same as cmd/create.go)
-			fmt.Println("Connecting using Postgres superuser...")
-			adminDB, err := db.ConnectAndVerify("psql", "postgres", "your_postgres_password", "localhost", "5432", "postgres")
+			// Create flow
+			adminDB, err := getAdminConnection()
 			if err != nil {
-				fmt.Printf("Error: could not connect as superuser: %v\n", err)
+				fmt.Printf("Error: %v\n", err)
 				os.Exit(1)
 			}
 			defer adminDB.Close()
@@ -68,7 +59,24 @@ directly from the terminal.`,
 			}
 			fmt.Printf("Success: created database '%s' and user '%s'.\n", dbName, newUser)
 		case 2:
-			fmt.Println("TODO: Execute 'list all dbs' logic here.")
+			// List databases flow
+			adminDB, err := getAdminConnection()
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			defer adminDB.Close()
+
+			dbNames, err := db.ListDatabases(adminDB)
+			if err != nil {
+				fmt.Printf("Could not fetch database list: %v\n", err)
+				os.Exit(1)
+			}
+
+			if err := tui.RunDBList(dbNames); err != nil {
+				fmt.Printf("Error displaying database list: %v\n", err)
+				os.Exit(1)
+			}
 		}
 	},
 }

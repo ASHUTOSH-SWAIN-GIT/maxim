@@ -13,16 +13,12 @@ var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new database and a dedicated user",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Connecting using Postgres superuser...")
-
-		adminDB, err := db.ConnectAndVerify("psql", "postgres", "your_postgres_password", "localhost", "5432", "postgres")
+		adminDB, err := getAdminConnection()
 		if err != nil {
-			fmt.Printf("Error: could not connect as superuser: %v\n", err)
+			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
 		}
 		defer adminDB.Close()
-
-		// Connected as superuser
 
 		formData, err := tui.RunCreateForm()
 		if err != nil {

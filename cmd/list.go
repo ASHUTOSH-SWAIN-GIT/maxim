@@ -13,10 +13,9 @@ var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all databases on the connected server",
 	Run: func(cmd *cobra.Command, args []string) {
-
-		adminDB, err := db.ConnectAndVerify("psql", "postgres", "your_postgres_password", "localhost", "5432", "postgres")
+		adminDB, err := getAdminConnection()
 		if err != nil {
-			fmt.Printf("Could not connect with admin credentials: %v\n", err)
+			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
 		}
 		defer adminDB.Close()
