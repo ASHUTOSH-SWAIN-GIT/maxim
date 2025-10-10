@@ -17,7 +17,7 @@ var createCmd = &cobra.Command{
 
 		adminDB, err := db.ConnectAndVerify("psql", "postgres", "your_postgres_password", "localhost", "5432", "postgres")
 		if err != nil {
-			fmt.Printf("Could not connect with admin credentials: %v\n", err)
+			fmt.Printf("Error: could not connect as superuser: %v\n", err)
 			os.Exit(1)
 		}
 		defer adminDB.Close()
@@ -26,12 +26,12 @@ var createCmd = &cobra.Command{
 
 		formData, err := tui.RunCreateForm()
 		if err != nil {
-			fmt.Printf("Error running form: %v\n", err)
+			fmt.Printf("Error: could not open create form: %v\n", err)
 			os.Exit(1)
 		}
 
 		if formData.Quitting {
-			fmt.Println("Database creation cancelled.")
+			fmt.Println("Cancelled: database creation aborted by user.")
 			os.Exit(0)
 		}
 
@@ -39,12 +39,12 @@ var createCmd = &cobra.Command{
 		newUser := formData.Inputs[1].Value()
 		newPassword := formData.Inputs[2].Value()
 
-		err = db.CreateDBAndUser(adminDB, dbName, newUser, newPassword)
+		err = db.CreateDBAndUser(adminDB, "psql", dbName, newUser, newPassword)
 		if err != nil {
-			fmt.Printf("\n Failed to create database: %v\n", err)
+			fmt.Printf("Error: failed to create database/user: %v\n", err)
 			os.Exit(1)
 		}
 
-		fmt.Printf("\n Successfully created database '%s' and user '%s'!\n", dbName, newUser)
+		fmt.Printf("Success: created database '%s' and user '%s'.\n", dbName, newUser)
 	},
 }

@@ -14,15 +14,35 @@ type ConnectFormModel struct {
 	Quitting   bool
 }
 
-func RunConnectForm() (ConnectFormModel, error) {
-	m, err := tea.NewProgram(initialModel()).Run()
-	if err != nil {
-		return ConnectFormModel{}, err
-	}
-	return m.(ConnectFormModel), nil
+type ConnectResult struct {
+	DBType   string
+	Port     string
+	User     string
+	Password string
+	DBName   string
+	Quitting bool
 }
 
-func initialModel() ConnectFormModel {
+func RunConnectForm() (ConnectResult, error) {
+	m, err := tea.NewProgram(initialConnectFormModel()).Run()
+	if err != nil {
+		return ConnectResult{}, err
+	}
+
+	model := m.(ConnectFormModel)
+	result := ConnectResult{
+		DBType:   "psql",
+		Port:     model.Inputs[0].Value(),
+		User:     model.Inputs[1].Value(),
+		Password: model.Inputs[2].Value(),
+		DBName:   model.Inputs[3].Value(),
+		Quitting: model.Quitting,
+	}
+
+	return result, nil
+}
+
+func initialConnectFormModel() ConnectFormModel {
 	m := ConnectFormModel{
 		Inputs: make([]textinput.Model, 4),
 	}
@@ -36,21 +56,19 @@ func initialModel() ConnectFormModel {
 
 		switch i {
 		case 0:
-			t.Placeholder = "postgres"
+			t.Placeholder = "5432"
 			t.Focus()
 		case 1:
+			t.Placeholder = "postgres"
+		case 2:
 			t.Placeholder = "password"
 			t.EchoMode = textinput.EchoPassword
 			t.EchoCharacter = '•'
-		case 2:
-			t.Placeholder = "5432"
 		case 3:
 			t.Placeholder = "postgres"
 		}
-
 		m.Inputs[i] = t
 	}
-
 	return m
 }
 
@@ -75,8 +93,6 @@ func (m ConnectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 			m.nextInput()
-		case tea.KeyCtrlC, tea.KeyEsc:
-			return m, tea.Quit
 		case tea.KeyShiftTab, tea.KeyCtrlP:
 			m.prevInput()
 		case tea.KeyTab, tea.KeyCtrlN:
@@ -92,17 +108,15 @@ func (m ConnectFormModel) View() string {
 	if m.Quitting {
 		return ""
 	}
+
 	var b strings.Builder
-
-	b.WriteString("Enter Database Credentials (host is localhost)\n\n")
-
-	labels := []string{"Username:      ", "Password:      ", "Port:          ", "Database Name: "}
+	b.WriteString("Enter Database Credentials\n\n")
+	labels := []string{"Port:     ", "Username: ", "Password: ", "DB Name:  "}
 	for i := range m.Inputs {
 		b.WriteString(labels[i])
 		b.WriteString(m.Inputs[i].View())
 		b.WriteRune('\n')
 	}
-
 	b.WriteString("\n(press Enter to submit, Esc to quit)")
 	return b.String()
 }
