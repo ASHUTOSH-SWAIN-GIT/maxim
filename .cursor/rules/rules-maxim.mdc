@@ -3,3 +3,6 @@ description:
 globs:
 alwaysApply: true
 ---
+-dont run any terminal command your own
+-refer to the about.mkd file for the context of this project 
+-dont use emojis in the code and if you find any then delete thme  

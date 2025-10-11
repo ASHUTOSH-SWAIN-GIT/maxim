@@ -28,12 +28,12 @@ var connectCmd = &cobra.Command{
 
 		conn, err := db.ConnectAndVerify("psql", result.User, result.Password, "localhost", result.Port, result.DBName)
 		if err != nil {
-			fmt.Printf("\n❌ Connection failed: %v\n", err)
+			fmt.Printf("\n Connection failed: %v\n", err)
 			os.Exit(1)
 		}
 		defer conn.Close()
 
-		fmt.Println("\n✅ Connected successfully!")
+		fmt.Println("\n Connected successfully!")
 
 		detailsToSave := config.ConnectionDetails{
 			Host:   "localhost",
@@ -43,7 +43,7 @@ var connectCmd = &cobra.Command{
 		}
 
 		if err := config.SaveAdminConnection(detailsToSave, result.Password); err != nil {
-			fmt.Printf("\n❌ Failed to save credentials: %v\n", err)
+			fmt.Printf("\n Failed to save credentials: %v\n", err)
 			os.Exit(1)
 		}
 

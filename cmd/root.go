@@ -23,15 +23,26 @@ directly from the terminal.`,
 
 		switch choice {
 		case 0:
-			// Connect flow - use same credential management as other operations
-			adminDB, err := getAdminConnection()
+			// Connect flow - connect to a specific database
+			result, err := tui.RunConnectForm()
 			if err != nil {
-				fmt.Printf("Error: %v\n", err)
+				fmt.Printf("Error running form: %v\n", err)
 				os.Exit(1)
 			}
-			defer adminDB.Close()
+			if result.Quitting {
+				fmt.Println("Connection cancelled.")
+				os.Exit(0)
+			}
 
-			fmt.Printf("Success: connected to Postgres superuser.\n")
+			conn, err := db.ConnectAndVerify("psql", result.User, result.Password, "localhost", result.Port, result.DBName)
+			if err != nil {
+				fmt.Printf(" Connection failed: %v\n", err)
+				os.Exit(1)
+			}
+			defer conn.Close()
+
+			fmt.Printf(" Successfully connected to database: %s\n", result.DBName)
+			fmt.Printf("Connection info: %s@localhost:%s/%s\n", result.User, result.Port, result.DBName)
 		case 1:
 			// Create flow
 			adminDB, err := getAdminConnection()

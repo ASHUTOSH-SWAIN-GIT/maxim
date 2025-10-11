@@ -56,8 +56,8 @@ func getAdminConnection() (*sql.DB, error) {
 	}
 
 	// Credentials found, prompt for password only
-	fmt.Printf("Using saved credentials: %s@localhost:%s\n", details.User, details.Port)
-	fmt.Print("Please enter your password: ")
+	fmt.Printf("Enter the password of your superuser: %s\n", details.User)
+	fmt.Print("Password: ")
 
 	// Read password securely (hidden input)
 	passwordBytes, err := term.ReadPassword(int(syscall.Stdin))
