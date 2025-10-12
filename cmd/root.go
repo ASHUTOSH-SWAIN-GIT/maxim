@@ -43,6 +43,61 @@ directly from the terminal.`,
 
 			fmt.Printf(" Successfully connected to database: %s\n", result.DBName)
 			fmt.Printf("Connection info: %s@localhost:%s/%s\n", result.User, result.Port, result.DBName)
+
+			// Show database operations menu
+			for {
+				choice, err := tui.RunDBOperationsMenu(result.DBName)
+				if err != nil {
+					fmt.Printf("Error running operations menu: %v\n", err)
+					break
+				}
+
+				// Check if user pressed 'q' to quit
+				if choice == -1 {
+					break
+				}
+
+				switch choice {
+				case 0: // List all tables
+					tables, err := db.GetTables(conn)
+					if err != nil {
+						fmt.Printf("Error fetching tables: %v\n", err)
+						continue
+					}
+					selectedTable, err := tui.RunTableList(tables)
+					if err != nil {
+						continue
+					}
+					fmt.Printf("Selected table: %s\n", selectedTable)
+
+				case 1: // Show table data
+					tables, err := db.GetTables(conn)
+					if err != nil {
+						fmt.Printf("Error fetching tables: %v\n", err)
+						continue
+					}
+					selectedTable, err := tui.RunTableList(tables)
+					if err != nil {
+						continue
+					}
+
+					columns, rows, err := db.GetTableData(conn, selectedTable)
+					if err != nil {
+						fmt.Printf("Error fetching table data: %v\n", err)
+						continue
+					}
+
+					if err := tui.RunDataViewer(selectedTable, columns, rows); err != nil {
+						fmt.Printf("Error displaying data: %v\n", err)
+					}
+
+				case 2: // Execute custom query
+					fmt.Println("Custom query feature coming soon!")
+
+				case 3: // Back to main menu
+					return
+				}
+			}
 		case 1:
 			// Create flow
 			adminDB, err := getAdminConnection()
