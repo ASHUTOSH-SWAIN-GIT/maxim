@@ -8,9 +8,10 @@ import (
 )
 
 type mainMenuModel struct {
-	cursor  int
-	choices []string
-	done    bool
+	cursor   int
+	choices  []string
+	done     bool
+	quitting bool
 }
 
 func initialMainMenuModel() mainMenuModel {
@@ -28,6 +29,7 @@ func (m mainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
+			m.quitting = true
 			return m, tea.Quit
 		case "up", "k":
 			if m.cursor > 0 {
@@ -46,7 +48,7 @@ func (m mainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m mainMenuModel) View() string {
-	if m.done {
+	if m.done || m.quitting {
 		return ""
 	}
 	var b strings.Builder
@@ -68,8 +70,13 @@ func RunMainMenu() (int, error) {
 	p := tea.NewProgram(initialMainMenuModel())
 	m, err := p.Run()
 	if err != nil {
-		return 0, err
+		return -1, err
 	}
 
-	return m.(mainMenuModel).cursor, nil
+	model := m.(mainMenuModel)
+	if model.quitting {
+		return -1, nil
+	}
+
+	return model.cursor, nil
 }

@@ -12,6 +12,7 @@ type ConnectFormModel struct {
 	focusIndex int
 	Inputs     []textinput.Model
 	Quitting   bool
+	done       bool
 }
 
 type ConnectResult struct {
@@ -90,6 +91,7 @@ func (m ConnectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyEnter:
 			if m.focusIndex == len(m.Inputs)-1 {
+				m.done = true
 				return m, tea.Quit
 			}
 			m.nextInput()
@@ -105,7 +107,7 @@ func (m ConnectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m ConnectFormModel) View() string {
-	if m.Quitting {
+	if m.Quitting || m.done {
 		return ""
 	}
 

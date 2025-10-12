@@ -1,0 +1,2 @@
+-when i open the tui and press q it does not exit rather opens the feature 
+-when i connect to a db the enter db credentials form is still there it should be removed and new tui options should appear(list all tables and show table data)n

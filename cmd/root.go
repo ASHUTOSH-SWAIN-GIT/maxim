@@ -21,6 +21,12 @@ directly from the terminal.`,
 			os.Exit(1)
 		}
 
+		// Handle quitting
+		if choice == -1 {
+			fmt.Println("Goodbye!")
+			return
+		}
+
 		switch choice {
 		case 0:
 			// Connect flow - connect to a specific database
