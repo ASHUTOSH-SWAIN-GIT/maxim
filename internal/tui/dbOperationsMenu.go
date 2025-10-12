@@ -22,7 +22,7 @@ func initialDBOperationsModel(dbName string) dbOperationsModel {
 		choices: []string{
 			"List all tables",
 			"Show table data",
-			"Smart Editor",
+			"Editor",
 		},
 	}
 }

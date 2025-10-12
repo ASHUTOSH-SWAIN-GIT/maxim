@@ -94,7 +94,7 @@ directly from the terminal.`,
 						fmt.Printf("Error displaying data: %v\n", err)
 					}
 
-				case 2: // Smart Editor
+				case 2: // Editor
 					if err := tui.RunSQLEditor(conn, result.DBName); err != nil {
 						fmt.Printf("Error running SQL editor: %v\n", err)
 					}

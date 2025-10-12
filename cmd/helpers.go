@@ -81,8 +81,6 @@ func getAdminConnectionInfo() (*AdminConnectionInfo, error) {
 	}
 
 	// Credentials found, prompt for password only
-	fmt.Printf("Enter the password of your superuser: %s\n", details.User)
-	fmt.Print("Password: ")
 
 	// Read password securely (hidden input)
 	passwordBytes, err := term.ReadPassword(int(syscall.Stdin))
