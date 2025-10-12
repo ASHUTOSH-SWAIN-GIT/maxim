@@ -47,9 +47,6 @@ directly from the terminal.`,
 			}
 			defer conn.Close()
 
-			fmt.Printf(" Successfully connected to database: %s\n", result.DBName)
-			fmt.Printf("Connection info: %s@localhost:%s/%s\n", result.User, result.Port, result.DBName)
-
 			// Show database operations menu
 			for {
 				choice, err := tui.RunDBOperationsMenu(result.DBName)
@@ -97,8 +94,10 @@ directly from the terminal.`,
 						fmt.Printf("Error displaying data: %v\n", err)
 					}
 
-				case 2: // Execute custom query
-					fmt.Println("Custom query feature coming soon!")
+				case 2: // Smart Editor
+					if err := tui.RunSQLEditor(conn, result.DBName); err != nil {
+						fmt.Printf("Error running SQL editor: %v\n", err)
+					}
 
 				case 3: // Back to main menu
 					return

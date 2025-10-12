@@ -59,7 +59,7 @@ func (m dataViewerModel) View() string {
 		noDataStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("8")).
 			Italic(true)
-		b.WriteString(noDataStyle.Render("📭 No data found in this table"))
+		b.WriteString(noDataStyle.Render(" No data found in this table"))
 		b.WriteString("\n\n")
 	} else {
 		// Calculate column widths
