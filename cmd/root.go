@@ -100,12 +100,12 @@ directly from the terminal.`,
 			}
 		case 1:
 			// Create flow
-			adminDB, err := getAdminConnection()
+			adminInfo, err := getAdminConnectionInfo()
 			if err != nil {
 				fmt.Printf("Error: %v\n", err)
 				os.Exit(1)
 			}
-			defer adminDB.Close()
+			defer adminInfo.DB.Close()
 
 			formData, err := tui.RunCreateForm()
 			if err != nil {
@@ -119,21 +119,21 @@ directly from the terminal.`,
 			dbName := formData.Inputs[0].Value()
 			newUser := formData.Inputs[1].Value()
 			newPassword := formData.Inputs[2].Value()
-			if err := db.CreateDBAndUser(adminDB, "psql", dbName, newUser, newPassword); err != nil {
+			if err := db.CreateDBAndUser(adminInfo.DB, "psql", dbName, newUser, newPassword, adminInfo.User, adminInfo.Password, adminInfo.Host, adminInfo.Port); err != nil {
 				fmt.Printf("Error: failed to create database/user: %v\n", err)
 				os.Exit(1)
 			}
 			fmt.Printf("Success: created database '%s' and user '%s'.\n", dbName, newUser)
 		case 2:
 			// List databases flow
-			adminDB, err := getAdminConnection()
+			adminInfo, err := getAdminConnectionInfo()
 			if err != nil {
 				fmt.Printf("Error: %v\n", err)
 				os.Exit(1)
 			}
-			defer adminDB.Close()
+			defer adminInfo.DB.Close()
 
-			dbNames, err := db.ListDatabases(adminDB)
+			dbNames, err := db.ListDatabases(adminInfo.DB)
 			if err != nil {
 				fmt.Printf("Could not fetch database list: %v\n", err)
 				os.Exit(1)

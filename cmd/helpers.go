@@ -13,9 +13,28 @@ import (
 	"golang.org/x/term"
 )
 
+// AdminConnectionInfo holds the database connection and admin credentials
+type AdminConnectionInfo struct {
+	DB       *sql.DB
+	User     string
+	Password string
+	Host     string
+	Port     string
+}
+
 // getAdminConnection loads saved admin credentials or prompts the user to enter them.
 // It returns a connected database handle or exits on error.
 func getAdminConnection() (*sql.DB, error) {
+	info, err := getAdminConnectionInfo()
+	if err != nil {
+		return nil, err
+	}
+	return info.DB, nil
+}
+
+// getAdminConnectionInfo loads saved admin credentials or prompts the user to enter them.
+// It returns both the connected database handle and admin credentials.
+func getAdminConnectionInfo() (*AdminConnectionInfo, error) {
 	details, err := config.LoadAdminConnection()
 	if err != nil {
 		// No saved credentials, prompt user for all details
@@ -52,7 +71,13 @@ func getAdminConnection() (*sql.DB, error) {
 			fmt.Println("Superuser credentials saved successfully.")
 		}
 
-		return adminDB, nil
+		return &AdminConnectionInfo{
+			DB:       adminDB,
+			User:     result.User,
+			Password: result.Password,
+			Host:     "localhost",
+			Port:     result.Port,
+		}, nil
 	}
 
 	// Credentials found, prompt for password only
@@ -78,5 +103,11 @@ func getAdminConnection() (*sql.DB, error) {
 		return nil, fmt.Errorf("connection failed: %w", err)
 	}
 
-	return adminDB, nil
+	return &AdminConnectionInfo{
+		DB:       adminDB,
+		User:     details.User,
+		Password: password,
+		Host:     details.Host,
+		Port:     details.Port,
+	}, nil
 }

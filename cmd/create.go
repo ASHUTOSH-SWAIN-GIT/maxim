@@ -13,12 +13,12 @@ var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new database and a dedicated user",
 	Run: func(cmd *cobra.Command, args []string) {
-		adminDB, err := getAdminConnection()
+		adminInfo, err := getAdminConnectionInfo()
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
 		}
-		defer adminDB.Close()
+		defer adminInfo.DB.Close()
 
 		formData, err := tui.RunCreateForm()
 		if err != nil {
@@ -35,7 +35,7 @@ var createCmd = &cobra.Command{
 		newUser := formData.Inputs[1].Value()
 		newPassword := formData.Inputs[2].Value()
 
-		err = db.CreateDBAndUser(adminDB, "psql", dbName, newUser, newPassword)
+		err = db.CreateDBAndUser(adminInfo.DB, "psql", dbName, newUser, newPassword, adminInfo.User, adminInfo.Password, adminInfo.Host, adminInfo.Port)
 		if err != nil {
 			fmt.Printf("Error: failed to create database/user: %v\n", err)
 			os.Exit(1)

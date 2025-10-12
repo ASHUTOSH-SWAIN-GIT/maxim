@@ -42,11 +42,14 @@ var connectCmd = &cobra.Command{
 			DBName: result.DBName,
 		}
 
-		if err := config.SaveAdminConnection(detailsToSave, result.Password); err != nil {
+		// Create a connection name based on the database name
+		connectionName := fmt.Sprintf("%s@%s:%s", result.User, "localhost", result.Port)
+
+		if err := config.SaveDatabaseConnection(connectionName, detailsToSave, result.Password); err != nil {
 			fmt.Printf("\n Failed to save credentials: %v\n", err)
 			os.Exit(1)
 		}
 
-		fmt.Println("Credentials saved successfully.")
+		fmt.Printf("Database connection '%s' saved successfully.\n", connectionName)
 	},
 }
