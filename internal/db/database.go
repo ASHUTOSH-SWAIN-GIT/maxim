@@ -22,12 +22,29 @@ func ConnectAndVerify(dbType, user, password, host, port, dbname string) (*sql.D
 
 	db, err := sql.Open(driverName, dsn)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to open database connection: %w", err)
 	}
 
 	if err = db.Ping(); err != nil {
 		db.Close()
-		return nil, err
+		// Parse PostgreSQL error to provide more specific messages
+		if pqErr, ok := err.(*pq.Error); ok {
+			switch pqErr.Code {
+			case "28P01": // Invalid password
+				return nil, fmt.Errorf("authentication failed: invalid password for user '%s'", user)
+			case "3D000": // Invalid database name
+				return nil, fmt.Errorf("database '%s' does not exist", dbname)
+			case "08006": // Connection failure
+				return nil, fmt.Errorf("connection failed: unable to connect to host '%s' on port '%s' - check if PostgreSQL is running", host, port)
+			case "08001": // SQL client unable to establish SQL connection
+				return nil, fmt.Errorf("connection refused: unable to connect to host '%s' on port '%s' - check if PostgreSQL is running and port is correct", host, port)
+			case "08003": // Connection does not exist
+				return nil, fmt.Errorf("connection lost: unable to maintain connection to host '%s' on port '%s'", host, port)
+			default:
+				return nil, fmt.Errorf("database connection failed: %s", pqErr.Message)
+			}
+		}
+		return nil, fmt.Errorf("database connection failed: %w", err)
 	}
 
 	return db, nil
