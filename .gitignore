@@ -40,3 +40,5 @@ Thumbs.db
 # Project specific
 about/
 .cursor/
+# Added by goreleaser init:
+dist/
