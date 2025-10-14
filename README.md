@@ -40,30 +40,26 @@ Option B: Download release
 
 Create a PostgreSQL superuser (if you don't have one)
 ----------------------------------------------------
-Most PostgreSQL installs include a `postgres` superuser. If you do not have a superuser yet, create one with `psql`:
+Most PostgreSQL installs include a `postgres` superuser. If you do not have a superuser yet:
 
-- Using `psql` as an OS user that can access the server socket (often `postgres`):
+1. Connect to PostgreSQL:
 ```
-psql -U postgres -d postgres -c "CREATE ROLE myadmin WITH SUPERUSER LOGIN PASSWORD 'strongpassword';"
-```
-
-- Or, using the `createuser` utility (interactive):
-```
-createuser --superuser --pwprompt myadmin
+psql -U postgres
 ```
 
-- If your server listens on TCP (localhost:5432):
+2. Create a new superuser:
+```sql
+CREATE USER new_admin_name WITH SUPERUSER PASSWORD 'a_strong_password';
 ```
-psql -h localhost -p 5432 -U postgres -d postgres -c "CREATE ROLE myadmin WITH SUPERUSER LOGIN PASSWORD 'strongpassword';"
+
+3. Exit psql:
+```sql
+\q
 ```
 
 Notes:
-- Replace `myadmin` and the password with your desired credentials.
-- Ensure `pg_hba.conf` allows local authentication for your method (peer/md5/scram).
-- You can verify with:
-```
-psql -U myadmin -d postgres -h localhost -p 5432 -c "SELECT current_user;"
-```
+- Replace `new_admin_name` and `a_strong_password` with your desired credentials.
+- You can now use these credentials in Maxim for admin operations.
 
 Quick Start
 -----------
