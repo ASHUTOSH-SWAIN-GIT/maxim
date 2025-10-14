@@ -38,6 +38,33 @@ Option B: Download release
 - Place it on your PATH (e.g., `/usr/local/bin` on Linux/macOS)
 - Make it executable if needed (`chmod +x maxim`)
 
+Create a PostgreSQL superuser (if you don't have one)
+----------------------------------------------------
+Most PostgreSQL installs include a `postgres` superuser. If you do not have a superuser yet, create one with `psql`:
+
+- Using `psql` as an OS user that can access the server socket (often `postgres`):
+```
+psql -U postgres -d postgres -c "CREATE ROLE myadmin WITH SUPERUSER LOGIN PASSWORD 'strongpassword';"
+```
+
+- Or, using the `createuser` utility (interactive):
+```
+createuser --superuser --pwprompt myadmin
+```
+
+- If your server listens on TCP (localhost:5432):
+```
+psql -h localhost -p 5432 -U postgres -d postgres -c "CREATE ROLE myadmin WITH SUPERUSER LOGIN PASSWORD 'strongpassword';"
+```
+
+Notes:
+- Replace `myadmin` and the password with your desired credentials.
+- Ensure `pg_hba.conf` allows local authentication for your method (peer/md5/scram).
+- You can verify with:
+```
+psql -U myadmin -d postgres -h localhost -p 5432 -c "SELECT current_user;"
+```
+
 Quick Start
 -----------
 Run the CLI:
