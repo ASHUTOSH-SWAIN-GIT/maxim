@@ -105,7 +105,8 @@ func GetTableData(db *sql.DB, tableName string) ([]table.Column, []table.Row, er
 
 	cols := make([]table.Column, len(colNames))
 	for i, colName := range colNames {
-		cols[i] = table.Column{Title: colName, Width: 15}
+		// Set a reasonable default width, the table component will handle dynamic sizing
+		cols[i] = table.Column{Title: colName, Width: 20}
 	}
 
 	var tableRows []table.Row
@@ -126,7 +127,29 @@ func GetTableData(db *sql.DB, tableName string) ([]table.Column, []table.Row, er
 			if val == nil {
 				row[i] = "NULL"
 			} else {
-				row[i] = fmt.Sprintf("%s", val)
+				// Handle different data types properly
+				switch v := val.(type) {
+				case []byte:
+					// Convert byte array to string
+					row[i] = string(v)
+				case string:
+					row[i] = v
+				case int64:
+					row[i] = fmt.Sprintf("%d", v)
+				case int32:
+					row[i] = fmt.Sprintf("%d", v)
+				case int:
+					row[i] = fmt.Sprintf("%d", v)
+				case float64:
+					row[i] = fmt.Sprintf("%.2f", v)
+				case float32:
+					row[i] = fmt.Sprintf("%.2f", v)
+				case bool:
+					row[i] = fmt.Sprintf("%t", v)
+				default:
+					// For other types, use string representation
+					row[i] = fmt.Sprintf("%v", v)
+				}
 			}
 		}
 		tableRows = append(tableRows, row)

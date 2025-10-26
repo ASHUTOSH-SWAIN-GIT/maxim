@@ -39,25 +39,8 @@ func ExecuteQuery(db *sql.DB, query string) QueryResult {
 	var result strings.Builder
 	result.WriteString("Query executed successfully!\n\n")
 
-	// Create header
-	header := "│"
-	for _, col := range columns {
-		header += fmt.Sprintf(" %-15s │", col)
-	}
-	result.WriteString(header + "\n")
-
-	// Create separator
-	separator := "├"
-	for i := 0; i < len(columns); i++ {
-		separator += strings.Repeat("─", 17)
-		if i < len(columns)-1 {
-			separator += "┼"
-		}
-	}
-	separator += "┤"
-	result.WriteString(separator + "\n")
-
-	// Process rows
+	// First pass: collect all data to calculate column widths
+	var allRows [][]string
 	rowCount := 0
 	for rows.Next() {
 		// Create a slice of interface{} to hold the values
@@ -75,9 +58,9 @@ func ExecuteQuery(db *sql.DB, query string) QueryResult {
 			}
 		}
 
-		// Build row string
-		rowStr := "│"
-		for _, val := range values {
+		// Process row data
+		rowData := make([]string, len(columns))
+		for i, val := range values {
 			cellValue := "NULL"
 			if val != nil {
 				// Handle different data types properly
@@ -89,7 +72,13 @@ func ExecuteQuery(db *sql.DB, query string) QueryResult {
 					cellValue = v
 				case int64:
 					cellValue = fmt.Sprintf("%d", v)
+				case int32:
+					cellValue = fmt.Sprintf("%d", v)
+				case int:
+					cellValue = fmt.Sprintf("%d", v)
 				case float64:
+					cellValue = fmt.Sprintf("%.2f", v)
+				case float32:
 					cellValue = fmt.Sprintf("%.2f", v)
 				case bool:
 					cellValue = fmt.Sprintf("%t", v)
@@ -97,22 +86,77 @@ func ExecuteQuery(db *sql.DB, query string) QueryResult {
 					// For other types, use string representation
 					cellValue = fmt.Sprintf("%v", v)
 				}
-
-				// Truncate long values
-				if len(cellValue) > 15 {
-					cellValue = cellValue[:12] + "..."
-				}
 			}
-			rowStr += fmt.Sprintf(" %-15s │", cellValue)
+			rowData[i] = cellValue
 		}
-		result.WriteString(rowStr + "\n")
+		allRows = append(allRows, rowData)
 		rowCount++
 
 		// Limit results to prevent overwhelming output
 		if rowCount >= 100 {
-			result.WriteString("\n... (showing first 100 rows only)\n")
 			break
 		}
+	}
+
+	// Calculate column widths
+	columnWidths := make([]int, len(columns))
+	for i, col := range columns {
+		columnWidths[i] = len(col) // Start with header width
+	}
+
+	// Find the maximum width for each column
+	for _, row := range allRows {
+		for i, cell := range row {
+			if len(cell) > columnWidths[i] {
+				columnWidths[i] = len(cell)
+			}
+		}
+	}
+
+	// Ensure minimum width of 8 and maximum width of 50
+	for i := range columnWidths {
+		if columnWidths[i] < 8 {
+			columnWidths[i] = 8
+		}
+		if columnWidths[i] > 50 {
+			columnWidths[i] = 50
+		}
+	}
+
+	// Create header
+	header := "│"
+	for i, col := range columns {
+		header += fmt.Sprintf(" %-*s │", columnWidths[i], col)
+	}
+	result.WriteString(header + "\n")
+
+	// Create separator
+	separator := "├"
+	for i := 0; i < len(columns); i++ {
+		separator += strings.Repeat("─", columnWidths[i]+2)
+		if i < len(columns)-1 {
+			separator += "┼"
+		}
+	}
+	separator += "┤"
+	result.WriteString(separator + "\n")
+
+	// Process rows with dynamic widths
+	for _, rowData := range allRows {
+		rowStr := "│"
+		for i, cell := range rowData {
+			// Truncate if too long
+			displayValue := cell
+			if len(cell) > columnWidths[i] {
+				displayValue = cell[:columnWidths[i]-3] + "..."
+			}
+			rowStr += fmt.Sprintf(" %-*s │", columnWidths[i], displayValue)
+		}
+		result.WriteString(rowStr + "\n")
+	}
+
+	if rowCount >= 100 {
+		result.WriteString("\n... (showing first 100 rows only)\n")
 	}
 
 	if err := rows.Err(); err != nil {

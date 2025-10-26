@@ -62,14 +62,32 @@ func (m dataViewerModel) View() string {
 		b.WriteString(noDataStyle.Render(" No data found in this table"))
 		b.WriteString("\n\n")
 	} else {
-		// Calculate column widths
+		// Calculate dynamic column widths based on actual data
 		columnWidths := make([]int, len(m.columns))
+
+		// Start with header widths
 		for i, col := range m.columns {
-			width := len(col.Title)
-			if width < 12 {
-				width = 12
+			columnWidths[i] = len(col.Title)
+		}
+
+		// Find maximum width for each column from all data
+		for _, row := range m.rows {
+			for j, cell := range row {
+				cellValue := fmt.Sprintf("%v", cell)
+				if len(cellValue) > columnWidths[j] {
+					columnWidths[j] = len(cellValue)
+				}
 			}
-			columnWidths[i] = width
+		}
+
+		// Set minimum and maximum widths
+		for i := range columnWidths {
+			if columnWidths[i] < 8 {
+				columnWidths[i] = 8
+			}
+			if columnWidths[i] > 60 {
+				columnWidths[i] = 60
+			}
 		}
 
 		// Simple table header
@@ -96,7 +114,7 @@ func (m dataViewerModel) View() string {
 		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Render(separator))
 		b.WriteString("\n")
 
-		// Data rows - show all data
+		// Data rows - show all data with dynamic widths
 		for _, row := range m.rows {
 			// Build row content
 			rowContent := ""
@@ -104,12 +122,12 @@ func (m dataViewerModel) View() string {
 				// Convert cell to string properly
 				cellValue := fmt.Sprintf("%v", cell)
 
-				// Truncate long values
+				// Only truncate if absolutely necessary (very long content)
 				if len(cellValue) > columnWidths[j]-2 {
 					cellValue = cellValue[:columnWidths[j]-5] + "..."
 				}
 
-				// Pad the cell content
+				// Pad the cell content with dynamic width
 				paddedValue := fmt.Sprintf(" %-*s ", columnWidths[j]-2, cellValue)
 				rowContent += paddedValue + "│"
 			}
