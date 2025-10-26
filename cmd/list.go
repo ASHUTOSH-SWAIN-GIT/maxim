@@ -26,9 +26,11 @@ var listCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		if err := tui.RunDBList(dbNames); err != nil {
+		selectedDB, err := tui.RunDBList(dbNames)
+		if err != nil {
 			fmt.Printf("Error displaying database list: %v\n", err)
 			os.Exit(1)
 		}
+		fmt.Printf("Selected database: %s\n", selectedDB)
 	},
 }

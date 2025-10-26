@@ -58,7 +58,7 @@ func (m tableListModel) View() string {
 		Foreground(lipgloss.Color("205")).
 		Bold(true).
 		MarginBottom(1)
-	b.WriteString(headerStyle.Render("📋 Tables in Database"))
+	b.WriteString(headerStyle.Render("Tables in Database"))
 	b.WriteString("\n\n")
 
 	if len(m.tables) == 0 {

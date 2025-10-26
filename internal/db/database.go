@@ -156,3 +156,25 @@ func GetTableData(db *sql.DB, tableName string) ([]table.Column, []table.Row, er
 	}
 	return cols, tableRows, nil
 }
+
+func DeleteDatabase(adminDB *sql.DB, dbType, dbName string) error {
+	if dbType != "psql" {
+		return fmt.Errorf("unsupported database type: %s", dbType)
+	}
+
+	// Terminate all connections to the database first
+	if _, err := adminDB.Exec(fmt.Sprintf(`
+		SELECT pg_terminate_backend(pid) 
+		FROM pg_stat_activity 
+		WHERE datname = %s AND pid <> pg_backend_pid()
+	`, pq.QuoteLiteral(dbName))); err != nil {
+		return fmt.Errorf("could not terminate connections to database: %w", err)
+	}
+
+	// Drop the database
+	if _, err := adminDB.Exec(fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(dbName))); err != nil {
+		return fmt.Errorf("could not delete database: %w", err)
+	}
+
+	return nil
+}

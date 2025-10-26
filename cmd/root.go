@@ -144,10 +144,47 @@ directly from the terminal.`,
 				os.Exit(1)
 			}
 
-			if err := tui.RunDBList(dbNames); err != nil {
-				fmt.Printf("Error displaying database list: %v\n", err)
+			selectedDB, err := tui.RunDBList(dbNames)
+			if err != nil {
+				fmt.Printf("Error selecting database: %v\n", err)
 				os.Exit(1)
 			}
+			fmt.Printf("Selected database: %s\n", selectedDB)
+		case 3:
+			// Delete database flow
+			adminInfo, err := getAdminConnectionInfo()
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			defer adminInfo.DB.Close()
+
+			dbNames, err := db.ListDatabases(adminInfo.DB)
+			if err != nil {
+				fmt.Printf("Could not fetch database list: %v\n", err)
+				os.Exit(1)
+			}
+
+			selectedDB, err := tui.RunDBList(dbNames)
+			if err != nil {
+				fmt.Printf("Error selecting database: %v\n", err)
+				os.Exit(1)
+			}
+
+			// Confirm deletion
+			fmt.Printf("Are you sure you want to delete database '%s'? This action cannot be undone! (y/N): ", selectedDB)
+			var confirm string
+			fmt.Scanln(&confirm)
+			if confirm != "y" && confirm != "Y" {
+				fmt.Println("Database deletion cancelled.")
+				return
+			}
+
+			if err := db.DeleteDatabase(adminInfo.DB, "psql", selectedDB); err != nil {
+				fmt.Printf("Error deleting database: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("Success: database '%s' has been deleted.\n", selectedDB)
 		}
 	},
 }

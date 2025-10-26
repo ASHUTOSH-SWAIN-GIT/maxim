@@ -16,7 +16,7 @@ type mainMenuModel struct {
 
 func initialMainMenuModel() mainMenuModel {
 	return mainMenuModel{
-		choices: []string{"Connect to a DB", "create a new DB", "List all DBs"},
+		choices: []string{"Connect to a DB", "create a new DB", "List all DBs", "Delete a DB"},
 	}
 }
 
