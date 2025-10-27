@@ -50,7 +50,62 @@ var connectCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		fmt.Printf("Database connection '%s' saved successfully.\n", connectionName)
+		// Show database operations menu (same as TUI version)
+		for {
+			choice, err := tui.RunDBOperationsMenu(result.DBName)
+			if err != nil {
+				fmt.Printf("Error running operations menu: %v\n", err)
+				break
+			}
+
+			// Check if user pressed 'q' to quit
+			if choice == -1 {
+				break
+			}
+
+			switch choice {
+			case 0: // List all tables
+				tables, err := db.GetTables(conn)
+				if err != nil {
+					fmt.Printf("Error fetching tables: %v\n", err)
+					continue
+				}
+				selectedTable, err := tui.RunTableList(tables)
+				if err != nil {
+					continue
+				}
+				fmt.Printf("Selected table: %s\n", selectedTable)
+
+			case 1: // Show table data
+				tables, err := db.GetTables(conn)
+				if err != nil {
+					fmt.Printf("Error fetching tables: %v\n", err)
+					continue
+				}
+				selectedTable, err := tui.RunTableList(tables)
+				if err != nil {
+					continue
+				}
+
+				columns, rows, err := db.GetTableData(conn, selectedTable)
+				if err != nil {
+					fmt.Printf("Error fetching table data: %v\n", err)
+					continue
+				}
+
+				if err := tui.RunDataViewer(selectedTable, columns, rows); err != nil {
+					fmt.Printf("Error displaying data: %v\n", err)
+				}
+
+			case 2: // Editor
+				if err := tui.RunSQLEditor(conn, result.DBName); err != nil {
+					fmt.Printf("Error running SQL editor: %v\n", err)
+				}
+
+			case 3: // Back to main menu
+				return
+			}
+		}
 	},
 }
 

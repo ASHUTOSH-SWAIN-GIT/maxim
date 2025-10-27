@@ -9,7 +9,7 @@ var dbCmd = &cobra.Command{
 	Short: "Manage db connections",
 }
 
-func init() {
-	// fmt.Println("DEBUG: db.go init() is running")
-	rootCmd.AddCommand(dbCmd)
-}
+// func init() {
+// 	// fmt.Println("DEBUG: db.go init() is running")
+// 	rootCmd.AddCommand(dbCmd)
+// }
