@@ -302,12 +302,27 @@ func (m sqlEditorModel) View() string {
 	// Create left panel content (SQL Query only)
 	leftContent := m.textarea.View()
 
-	// Create left panel (SQL Query) with minimal styling to avoid clipping
+	// Calculate consistent panel dimensions (use the smaller of the two to ensure symmetry)
+	panelWidth := m.textarea.Width()
+	if m.viewport.Width < panelWidth {
+		panelWidth = m.viewport.Width
+	}
+	panelWidth += 2 // Add border width
+
+	// Calculate consistent panel height
+	panelHeight := m.textarea.Height()
+	if m.viewport.Height > panelHeight {
+		panelHeight = m.viewport.Height
+	}
+	panelHeight += 2 // Add border height
+
+	// Create left panel (SQL Query) with consistent dimensions
 	leftPanel := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(lipgloss.Color("6")).
 		Padding(0, 1).
-		Width(m.textarea.Width() + 2).
+		Width(panelWidth).
+		Height(panelHeight).
 		Render(leftContent)
 
 	// Create right panel content (Results or Suggestions)
@@ -330,16 +345,27 @@ func (m sqlEditorModel) View() string {
 			}
 			rightContent += "\n  " + style.Render("• "+suggestion)
 		}
+
+		// Pad the suggestions content to match viewport height
+		lines := strings.Split(rightContent, "\n")
+		viewportHeight := m.viewport.Height
+		if len(lines) < viewportHeight {
+			// Add empty lines to match viewport height
+			for i := len(lines); i < viewportHeight; i++ {
+				rightContent += "\n"
+			}
+		}
 	} else {
 		rightContent = m.viewport.View()
 	}
 
-	// Create right panel (Results or Suggestions) with minimal styling to avoid clipping
+	// Create right panel (Results or Suggestions) with consistent dimensions
 	rightPanel := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(lipgloss.Color("6")).
 		Padding(0, 1).
-		Width(m.viewport.Width + 2).
+		Width(panelWidth).
+		Height(panelHeight).
 		Render(rightContent)
 
 	// Join panels horizontally

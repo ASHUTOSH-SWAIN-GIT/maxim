@@ -1,2 +1,0 @@
--when i am typing the maxim connect command and connecting  a db it shows this "Connected successfully!
-Database connection 'testing@localhost:5432' saved successfully." and gets exited it should behave exactly the same as the tui one 
