@@ -15,6 +15,26 @@ var rootCmd = &cobra.Command{
 	Long: `A fast and modern TUI for interacting with your databases
 directly from the terminal.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Show beautiful ASCII art and description
+		tui.ShowASCIIArt()
+	},
+}
+
+func Execute() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "An error occurred: %s\n", err)
+		os.Exit(1)
+	}
+}
+
+// startCmd represents the start command for TUI interface
+var startCmd = &cobra.Command{
+	Use:   "start",
+	Short: "Start the interactive TUI interface",
+	Long: `Start the interactive terminal user interface for database operations.
+This will launch the main menu where you can connect to databases,
+create new databases, and perform various database operations.`,
+	Run: func(cmd *cobra.Command, args []string) {
 		choice, err := tui.RunMainMenu()
 		if err != nil {
 			fmt.Printf("Error running main menu: %v\n", err)
@@ -189,16 +209,54 @@ directly from the terminal.`,
 	},
 }
 
-func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "An error occurred: %s\n", err)
-		os.Exit(1)
-	}
+// deleteCmd represents the delete command
+var deleteCmd = &cobra.Command{
+	Use:   "delete",
+	Short: "Delete a database",
+	Long: `Delete a PostgreSQL database.
+This will permanently remove the selected database and all its data.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		adminInfo, err := getAdminConnectionInfo()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+		defer adminInfo.DB.Close()
+
+		dbNames, err := db.ListDatabases(adminInfo.DB)
+		if err != nil {
+			fmt.Printf("Could not fetch database list: %v\n", err)
+			os.Exit(1)
+		}
+
+		selectedDB, err := tui.RunDBList(dbNames)
+		if err != nil {
+			fmt.Printf("Error selecting database: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Confirm deletion
+		fmt.Printf("Are you sure you want to delete database '%s'? This action cannot be undone! (y/N): ", selectedDB)
+		var confirm string
+		fmt.Scanln(&confirm)
+		if confirm != "y" && confirm != "Y" {
+			fmt.Println("Database deletion cancelled.")
+			return
+		}
+
+		if err := db.DeleteDatabase(adminInfo.DB, "psql", selectedDB); err != nil {
+			fmt.Printf("Error deleting database: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Success: database '%s' has been deleted.\n", selectedDB)
+	},
 }
 
 func init() {
+	rootCmd.AddCommand(startCmd)
+	rootCmd.AddCommand(connectCmd)
+	rootCmd.AddCommand(createCmd)
+	rootCmd.AddCommand(listCmd)
+	rootCmd.AddCommand(deleteCmd)
 	rootCmd.AddCommand(dbCmd)
-	dbCmd.AddCommand(connectCmd)
-	dbCmd.AddCommand(createCmd)
-	dbCmd.AddCommand(listCmd)
 }

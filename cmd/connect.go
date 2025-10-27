@@ -53,3 +53,7 @@ var connectCmd = &cobra.Command{
 		fmt.Printf("Database connection '%s' saved successfully.\n", connectionName)
 	},
 }
+
+func init() {
+	// Command registration is handled in root.go
+}

@@ -1,2 +1,2 @@
--when i open the tui and press q it does not exit rather opens the feature 
--when i connect to a db the enter db credentials form is still there it should be removed and new tui options should appear(list all tables and show table data)n
+- ✅ IMPLEMENTED: I want when an user types maxim a beautiful asci art should appear "maxim" (use some package to do so ) and description about the project and when user types maxim start then the tui menu should open 
+- ✅ IMPLEMENTED: and each tui menu will have its own command like maxim connect(conneting a db ) , maxim create(creating a db ) , maxim list(listing all dbs) , maxim delete(deleting a db )

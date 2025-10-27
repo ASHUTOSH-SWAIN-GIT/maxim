@@ -34,3 +34,7 @@ var listCmd = &cobra.Command{
 		fmt.Printf("Selected database: %s\n", selectedDB)
 	},
 }
+
+func init() {
+	// Command registration is handled in root.go
+}
