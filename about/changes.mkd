@@ -1,2 +1,0 @@
-- ✅ IMPLEMENTED: I want when an user types maxim a beautiful asci art should appear "maxim" (use some package to do so ) and description about the project and when user types maxim start then the tui menu should open 
-- ✅ IMPLEMENTED: and each tui menu will have its own command like maxim connect(conneting a db ) , maxim create(creating a db ) , maxim list(listing all dbs) , maxim delete(deleting a db )

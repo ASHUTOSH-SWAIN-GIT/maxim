@@ -13,14 +13,19 @@ import (
 )
 
 type sqlEditorModel struct {
-	textarea textarea.Model
-	viewport viewport.Model
-	ready    bool
-	db       *sql.DB
-	dbName   string
-	results  string
-	error    string
-	quitting bool
+	textarea        textarea.Model
+	viewport        viewport.Model
+	ready           bool
+	db              *sql.DB
+	dbName          string
+	results         string
+	error           string
+	quitting        bool
+	queryCache      *QueryCache
+	suggestions     []string
+	selectedIndex   int
+	showSuggestions bool
+	justSelected    bool
 }
 
 func initialSQLEditorModel(db *sql.DB, dbName string) sqlEditorModel {
@@ -38,7 +43,9 @@ func initialSQLEditorModel(db *sql.DB, dbName string) sqlEditorModel {
 		"Instructions:\n" +
 		"• Type your SQL queries in the left panel\n" +
 		"• Press Ctrl+E to execute the query\n" +
-		"• Results will appear in this panel\n" +
+		"• Autocomplete suggestions appear in this panel\n" +
+		"• Press Tab to cycle through suggestions\n" +
+		"• Press Enter to select highlighted suggestion\n" +
 		"• Press Ctrl+R to clear results\n" +
 		"• Press Esc to quit\n\n" +
 		"Example queries:\n" +
@@ -47,10 +54,15 @@ func initialSQLEditorModel(db *sql.DB, dbName string) sqlEditorModel {
 		"UPDATE users SET name = 'Jane' WHERE id = 1;")
 
 	return sqlEditorModel{
-		textarea: ta,
-		viewport: vp,
-		db:       db,
-		dbName:   dbName,
+		textarea:        ta,
+		viewport:        vp,
+		db:              db,
+		dbName:          dbName,
+		queryCache:      NewQueryCache(),
+		suggestions:     []string{},
+		selectedIndex:   0,
+		showSuggestions: false,
+		justSelected:    false,
 	}
 }
 
@@ -113,6 +125,51 @@ func (m sqlEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.SetContent("Results cleared.\n\n" +
 				"Ready for a new query. Type your SQL in the left panel and press Ctrl+E to execute.")
 			return m, nil
+		case tea.KeyTab:
+			// Cycle through suggestions
+			if m.showSuggestions && len(m.suggestions) > 0 {
+				m.selectedIndex = (m.selectedIndex + 1) % len(m.suggestions)
+				return m, nil
+			}
+			// If no suggestions, let textarea handle it normally
+		case tea.KeyShiftTab:
+			// Cycle through suggestions backwards
+			if m.showSuggestions && len(m.suggestions) > 0 {
+				m.selectedIndex = (m.selectedIndex - 1 + len(m.suggestions)) % len(m.suggestions)
+				return m, nil
+			}
+			// If no suggestions, let textarea handle it normally
+		case tea.KeyEnter:
+			// Select the highlighted suggestion
+			if m.showSuggestions && len(m.suggestions) > 0 {
+				// Insert the selected suggestion
+				selectedSuggestion := m.suggestions[m.selectedIndex]
+				currentValue := m.textarea.Value()
+				lines := strings.Split(currentValue, "\n")
+				if len(lines) > 0 {
+					// Get the current line
+					currentLine := lines[len(lines)-1]
+					// Find the last word to replace
+					words := strings.Fields(currentLine)
+					if len(words) > 0 {
+						// Replace the last word with the suggestion
+						words[len(words)-1] = selectedSuggestion
+						lines[len(lines)-1] = strings.Join(words, " ") + " "
+						m.textarea.SetValue(strings.Join(lines, "\n"))
+					} else {
+						// No words, just add the suggestion
+						lines[len(lines)-1] = selectedSuggestion + " "
+						m.textarea.SetValue(strings.Join(lines, "\n"))
+					}
+				}
+				// Clear suggestions after selection
+				m.showSuggestions = false
+				m.suggestions = []string{}
+				m.selectedIndex = 0
+				m.justSelected = true
+				return m, nil
+			}
+			// If no suggestions, let textarea handle Enter normally (new line)
 		}
 	}
 
@@ -120,13 +177,77 @@ func (m sqlEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.textarea, tiCmd = m.textarea.Update(msg)
 	m.viewport, vpCmd = m.viewport.Update(msg)
 
+	// Update suggestions based on current input
+	m.updateSuggestions()
+
 	return m, tea.Batch(tiCmd, vpCmd)
+}
+
+func (m *sqlEditorModel) updateSuggestions() {
+	// Don't update suggestions if we just selected one
+	if m.justSelected {
+		m.justSelected = false
+		return
+	}
+
+	currentValue := m.textarea.Value()
+	lines := strings.Split(currentValue, "\n")
+	if len(lines) > 0 {
+		currentLine := lines[len(lines)-1]
+		words := strings.Fields(currentLine)
+		if len(words) > 0 {
+			lastWord := words[len(words)-1]
+			if len(lastWord) > 0 {
+				suggestions := m.queryCache.GetSuggestions(lastWord)
+				if len(suggestions) > 0 {
+					// Only reset suggestions if they're different
+					if !m.suggestionsEqual(m.suggestions, suggestions) {
+						m.suggestions = suggestions
+						m.selectedIndex = 0
+					}
+					m.showSuggestions = true
+				} else {
+					m.showSuggestions = false
+					m.suggestions = []string{}
+					m.selectedIndex = 0
+				}
+			} else {
+				m.showSuggestions = false
+				m.suggestions = []string{}
+				m.selectedIndex = 0
+			}
+		} else {
+			m.showSuggestions = false
+			m.suggestions = []string{}
+			m.selectedIndex = 0
+		}
+	} else {
+		m.showSuggestions = false
+		m.suggestions = []string{}
+		m.selectedIndex = 0
+	}
+}
+
+// Helper function to compare two string slices
+func (m *sqlEditorModel) suggestionsEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *sqlEditorModel) executeQuery(query string) {
 	// Clear previous results
 	m.results = ""
 	m.error = ""
+
+	// Add the query to cache for future suggestions
+	m.queryCache.AddCommand(query)
 
 	// Execute the query using the separated database logic
 	result := db.ExecuteQuery(m.db, query)
@@ -151,7 +272,7 @@ func (m sqlEditorModel) headerView() string {
 	instructions := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("8")).
 		Italic(true).
-		Render("Ctrl+E: Execute | Ctrl+R: Clear | Esc: Quit")
+		Render("Ctrl+E: Execute | Tab: Cycle | Enter: Select | Ctrl+R: Clear | Esc: Quit")
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, title, instructions)
 }
@@ -160,7 +281,7 @@ func (m sqlEditorModel) footerView() string {
 	info := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("8")).
 		Italic(true).
-		Render("Left: SQL Query | Right: Results")
+		Render("Left: SQL Query | Right: Results/Suggestions | Tab: Cycle | Enter: Select")
 
 	return info
 }
@@ -178,21 +299,48 @@ func (m sqlEditorModel) View() string {
 	headerContent := m.headerView()
 	footerContent := m.footerView()
 
+	// Create left panel content (SQL Query only)
+	leftContent := m.textarea.View()
+
 	// Create left panel (SQL Query) with minimal styling to avoid clipping
 	leftPanel := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(lipgloss.Color("6")).
 		Padding(0, 1).
 		Width(m.textarea.Width() + 2).
-		Render(m.textarea.View())
+		Render(leftContent)
 
-	// Create right panel (Results) with minimal styling to avoid clipping
+	// Create right panel content (Results or Suggestions)
+	var rightContent string
+
+	// Show suggestions if available, otherwise show results
+	if m.showSuggestions && len(m.suggestions) > 0 {
+		rightContent = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("8")).
+			Italic(true).
+			Render("Suggestions (Tab: cycle, Enter: select):")
+
+		for i, suggestion := range m.suggestions {
+			if i >= 8 { // Limit to 8 visible suggestions in right panel
+				break
+			}
+			style := lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
+			if i == m.selectedIndex {
+				style = style.Foreground(lipgloss.Color("3")).Bold(true)
+			}
+			rightContent += "\n  " + style.Render("• "+suggestion)
+		}
+	} else {
+		rightContent = m.viewport.View()
+	}
+
+	// Create right panel (Results or Suggestions) with minimal styling to avoid clipping
 	rightPanel := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(lipgloss.Color("6")).
 		Padding(0, 1).
 		Width(m.viewport.Width + 2).
-		Render(m.viewport.View())
+		Render(rightContent)
 
 	// Join panels horizontally
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
