@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/lib/pq"
@@ -27,24 +28,30 @@ func ConnectAndVerify(dbType, user, password, host, port, dbname string) (*sql.D
 
 	if err = db.Ping(); err != nil {
 		db.Close()
-		// Parse PostgreSQL error to provide more specific messages
+		// Parse PostgreSQL error to provide simplified messages
 		if pqErr, ok := err.(*pq.Error); ok {
 			switch pqErr.Code {
 			case "28P01": // Invalid password
-				return nil, fmt.Errorf("authentication failed: invalid password for user '%s'", user)
+				return nil, fmt.Errorf("invalid db credentials")
 			case "3D000": // Invalid database name
 				return nil, fmt.Errorf("database '%s' does not exist", dbname)
 			case "08006": // Connection failure
-				return nil, fmt.Errorf("connection failed: unable to connect to host '%s' on port '%s' - check if PostgreSQL is running", host, port)
+				return nil, fmt.Errorf("invalid port")
 			case "08001": // SQL client unable to establish SQL connection
-				return nil, fmt.Errorf("connection refused: unable to connect to host '%s' on port '%s' - check if PostgreSQL is running and port is correct", host, port)
+				return nil, fmt.Errorf("invalid port")
 			case "08003": // Connection does not exist
-				return nil, fmt.Errorf("connection lost: unable to maintain connection to host '%s' on port '%s'", host, port)
+				return nil, fmt.Errorf("invalid port")
 			default:
-				return nil, fmt.Errorf("database connection failed: %s", pqErr.Message)
+				return nil, fmt.Errorf("invalid port")
 			}
 		}
-		return nil, fmt.Errorf("database connection failed: %w", err)
+		// Check for connection refused errors (wrong port/host)
+		if strings.Contains(err.Error(), "connection refused") ||
+			strings.Contains(err.Error(), "connect: connection refused") ||
+			strings.Contains(err.Error(), "dial tcp") {
+			return nil, fmt.Errorf("invalid port")
+		}
+		return nil, fmt.Errorf("wrong port")
 	}
 
 	return db, nil

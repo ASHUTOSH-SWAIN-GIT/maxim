@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+
+	"github.com/lib/pq"
 )
 
 // QueryResult represents the result of a SQL query execution
@@ -16,12 +18,21 @@ type QueryResult struct {
 
 // ExecuteQuery executes a SQL query and returns formatted results
 func ExecuteQuery(db *sql.DB, query string) QueryResult {
+	// Validate input
+	trimmedQuery := strings.TrimSpace(query)
+	if trimmedQuery == "" {
+		return QueryResult{
+			Success: false,
+			Error:   " No query to execute\n\nPlease enter a SQL query and try again.",
+		}
+	}
+
 	// Execute the query
 	rows, err := db.Query(query)
 	if err != nil {
 		return QueryResult{
 			Success: false,
-			Error:   fmt.Sprintf("Error executing query:\n%s", err.Error()),
+			Error:   formatQueryError(err),
 		}
 	}
 	defer rows.Close()
@@ -173,4 +184,15 @@ func ExecuteQuery(db *sql.DB, query string) QueryResult {
 		Data:     result.String(),
 		RowCount: rowCount,
 	}
+}
+
+// formatQueryError formats database errors with better readability
+func formatQueryError(err error) string {
+	// Handle PostgreSQL specific errors
+	if pqErr, ok := err.(*pq.Error); ok {
+		return pqErr.Message
+	}
+
+	// Generic error formatting
+	return err.Error()
 }

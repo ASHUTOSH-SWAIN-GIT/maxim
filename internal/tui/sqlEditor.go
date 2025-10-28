@@ -39,7 +39,7 @@ func initialSQLEditorModel(db *sql.DB, dbName string) sqlEditorModel {
 	ta.Prompt = ""
 
 	vp := viewport.New(50, 15) // Start with a smaller height, will be adjusted by window size
-	vp.SetContent("Welcome to the SQL Editor!\n\n" +
+	vp.SetContent("SQL Editor - Database: " + dbName + "\n\n" +
 		"Instructions:\n" +
 		"• Type your SQL queries in the left panel\n" +
 		"• Press Ctrl+E to execute the query\n" +
@@ -78,25 +78,19 @@ func (m sqlEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		// Reserve space for header, footer, and some padding
-		// Use a more conservative approach to ensure content is visible
-		headerHeight := lipgloss.Height(m.headerView())
-		footerHeight := lipgloss.Height(m.footerView())
-		// Add extra padding for borders and spacing
-		verticalMarginHeight := headerHeight + footerHeight + 6
+		// Use the full terminal size for the editor
+		// Reserve minimal space for borders and padding
+		verticalMarginHeight := 4 // Minimal padding for borders
 
 		if !m.ready {
-			// Since this program is using the full size of the viewport we
-			// need to wait until we've received the window dimensions before
-			// we can initialize the viewport. The initial dimensions come in
-			// quickly, though asynchronously, which is why we need to wait for
-			// them.
+			// Use full terminal width and height
 			m.textarea.SetWidth(msg.Width / 2)
 			m.textarea.SetHeight(msg.Height - verticalMarginHeight)
 			m.viewport.Width = msg.Width / 2
 			m.viewport.Height = msg.Height - verticalMarginHeight
 			m.ready = true
 		} else {
+			// Responsive resizing - use full terminal size
 			m.textarea.SetWidth(msg.Width / 2)
 			m.textarea.SetHeight(msg.Height - verticalMarginHeight)
 			m.viewport.Width = msg.Width / 2
@@ -162,11 +156,31 @@ func (m sqlEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.textarea.SetValue(strings.Join(lines, "\n"))
 					}
 				}
-				// Clear suggestions after selection
+				// Clear suggestions after selection but keep right panel restored
 				m.showSuggestions = false
 				m.suggestions = []string{}
 				m.selectedIndex = 0
 				m.justSelected = true
+				// Restore the right panel to show previous results or welcome message
+				if m.results != "" {
+					m.viewport.SetContent(m.results)
+				} else if m.error != "" {
+					m.viewport.SetContent(m.error)
+				} else {
+					m.viewport.SetContent("SQL Editor - Database: " + m.dbName + "\n\n" +
+						"Instructions:\n" +
+						"• Type your SQL queries in the left panel\n" +
+						"• Press Ctrl+E to execute the query\n" +
+						"• Autocomplete suggestions appear in this panel\n" +
+						"• Press Tab to cycle through suggestions\n" +
+						"• Press Enter to select highlighted suggestion\n" +
+						"• Press Ctrl+R to clear results\n" +
+						"• Press Esc to quit\n\n" +
+						"Example queries:\n" +
+						"SELECT * FROM users;\n" +
+						"INSERT INTO users (name) VALUES ('John');\n" +
+						"UPDATE users SET name = 'Jane' WHERE id = 1;")
+				}
 				return m, nil
 			}
 			// If no suggestions, let textarea handle Enter normally (new line)
@@ -259,31 +273,20 @@ func (m *sqlEditorModel) executeQuery(query string) {
 		m.textarea.SetValue("")
 	} else {
 		m.error = result.Error
-		m.viewport.SetContent(m.error)
+		// Format error with better styling and add clear instruction
+		formattedError := fmt.Sprintf("%s\n\nPress Ctrl+R to clear this error", result.Error)
+		m.viewport.SetContent(formattedError)
 	}
 }
 
 func (m sqlEditorModel) headerView() string {
-	title := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("6")).
-		Bold(true).
-		Render(fmt.Sprintf("SQL Editor - Database: %s", m.dbName))
-
-	instructions := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("8")).
-		Italic(true).
-		Render("Ctrl+E: Execute | Tab: Cycle | Enter: Select | Ctrl+R: Clear | Esc: Quit")
-
-	return lipgloss.JoinHorizontal(lipgloss.Top, title, instructions)
+	// Return empty string to remove external header
+	return ""
 }
 
 func (m sqlEditorModel) footerView() string {
-	info := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("8")).
-		Italic(true).
-		Render("Left: SQL Query | Right: Results/Suggestions | Tab: Cycle | Enter: Select")
-
-	return info
+	// Return empty string to remove external footer
+	return ""
 }
 
 func (m sqlEditorModel) View() string {
@@ -294,10 +297,6 @@ func (m sqlEditorModel) View() string {
 	if !m.ready {
 		return "\n  Initializing SQL Editor..."
 	}
-
-	// Use the existing header and footer methods for consistency
-	headerContent := m.headerView()
-	footerContent := m.footerView()
 
 	// Create left panel content (SQL Query only)
 	leftContent := m.textarea.View()
@@ -368,19 +367,11 @@ func (m sqlEditorModel) View() string {
 		Height(panelHeight).
 		Render(rightContent)
 
-	// Join panels horizontally
+	// Join panels horizontally to create single container
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
-	// Combine all parts with minimal spacing
-	content := lipgloss.JoinVertical(lipgloss.Left,
-		headerContent,
-		"",
-		panels,
-		"",
-		footerContent,
-	)
-
-	return content
+	// Return just the panels - single container taking up whole terminal
+	return panels
 }
 
 func RunSQLEditor(db *sql.DB, dbName string) error {
