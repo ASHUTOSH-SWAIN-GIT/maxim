@@ -1,4 +1,18 @@
--When i am entering wrong host port its showing the error message "Connection failed: database connection failed: dial tcp [::1]:4000: connect: connection refused" instead of this it should simply show a message "Oops! wrong port"
--when i am entering wrong user credentials its showing this error message "Connection failed: authentication failed: invalid password for user 'test'" instead of this it should simply show "Oops! wrong db credentials "
+-maxim list                                                             go ∩   00:36 
+Enter Postgres Superuser Credentials
 
--no need for custom errors for the sql editor we will show pq errors only but improve the error showing in the sql editor 
+Username: pass 
+Password: •••• 
+Port:     5432 
+
+Superuser credentials saved successfully.
+Databases on Server:
+
+  postgres
+  greenlight
+  test db 
+  test2
+  testing
+  okay
+
+after the superuser cred are being saved the form should disappear 

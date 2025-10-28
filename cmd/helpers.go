@@ -38,9 +38,6 @@ func getAdminConnectionInfo() (*AdminConnectionInfo, error) {
 	details, err := config.LoadAdminConnection()
 	if err != nil {
 		// No saved credentials, prompt user for all details
-		fmt.Println("No saved superuser credentials found.")
-		fmt.Println("Please enter Postgres superuser credentials:")
-
 		result, err := tui.RunAdminForm()
 		if err != nil {
 			return nil, fmt.Errorf("could not open credentials form: %w", err)
@@ -50,6 +47,9 @@ func getAdminConnectionInfo() (*AdminConnectionInfo, error) {
 			fmt.Println("Cancelled: operation aborted by user.")
 			os.Exit(0)
 		}
+
+		// Clear the screen after form completion
+		fmt.Print("\033[2J\033[H")
 
 		// Try to connect with provided credentials (always use postgres database for superuser)
 		adminDB, err := db.ConnectAndVerify("psql", result.User, result.Password, "localhost", result.Port, "postgres")

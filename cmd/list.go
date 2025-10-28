@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/ASHUTOSH-SWAIN-GIT/maxim/internal/db"
-	"github.com/ASHUTOSH-SWAIN-GIT/maxim/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -26,12 +25,15 @@ var listCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		selectedDB, err := tui.RunDBList(dbNames)
-		if err != nil {
-			fmt.Printf("Error displaying database list: %v\n", err)
-			os.Exit(1)
+		if len(dbNames) == 0 {
+			fmt.Println("No databases found on this server.")
+		} else {
+			fmt.Println("Databases on Server:")
+			fmt.Println()
+			for _, dbName := range dbNames {
+				fmt.Printf("  %s\n", dbName)
+			}
 		}
-		fmt.Printf("Selected database: %s\n", selectedDB)
 	},
 }
 

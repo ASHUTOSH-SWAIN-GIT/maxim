@@ -108,7 +108,3 @@ var connectCmd = &cobra.Command{
 		}
 	},
 }
-
-func init() {
-	// Command registration is handled in root.go
-}

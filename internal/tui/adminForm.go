@@ -60,6 +60,7 @@ func initialAdminFormModel() AdminFormModel {
 			t.EchoCharacter = '•'
 		case 2:
 			t.Placeholder = "5432"
+			t.SetValue("5432")
 		}
 		m.Inputs[i] = t
 	}
@@ -84,6 +85,7 @@ func (m AdminFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyEnter:
 			if m.focusIndex == len(m.Inputs)-1 {
+				// All fields completed, quit the form
 				return m, tea.Quit
 			}
 			m.nextInput()
