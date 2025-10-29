@@ -1,1 +1,0 @@
-- Currently the sql editor is bit janky like if we enter a very big query it breaks of rather than making it a two panel layout can we simple make the query run in the persons terminal only and the suggestions will be visible in a dropdown manner and can be  toggled using same tab key and enter means selecting it 
