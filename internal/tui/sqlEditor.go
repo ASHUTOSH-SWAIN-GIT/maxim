@@ -28,7 +28,7 @@ type sqlEditorModel struct {
 	justSelected    bool
 }
 
-func initialSQLEditorModel(db *sql.DB, dbName string) sqlEditorModel {
+func initialSQLEditorModel(conn *sql.DB, dbName string) sqlEditorModel {
 	ta := textarea.New()
 	ta.Placeholder = "Enter your SQL query here...\n\nExample:\nSELECT * FROM users;\nINSERT INTO users (name) VALUES ('John');\nUPDATE users SET name = 'Jane' WHERE id = 1;"
 	ta.Focus()
@@ -53,12 +53,26 @@ func initialSQLEditorModel(db *sql.DB, dbName string) sqlEditorModel {
 		"INSERT INTO users (name) VALUES ('John');\n" +
 		"UPDATE users SET name = 'Jane' WHERE id = 1;")
 
+	// Create query cache and cache columns
+	queryCache := NewQueryCache()
+
+	// Cache all columns and tables from the database for autocomplete
+	columns, err := db.GetAllColumns(conn)
+	if err == nil && len(columns) > 0 {
+		queryCache.CacheColumns(columns)
+	}
+
+	tables, err := db.GetAllTables(conn)
+	if err == nil && len(tables) > 0 {
+		queryCache.CacheTables(tables)
+	}
+
 	return sqlEditorModel{
 		textarea:        ta,
 		viewport:        vp,
-		db:              db,
+		db:              conn,
 		dbName:          dbName,
-		queryCache:      NewQueryCache(),
+		queryCache:      queryCache,
 		suggestions:     []string{},
 		selectedIndex:   0,
 		showSuggestions: false,

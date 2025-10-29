@@ -9,6 +9,8 @@ import (
 type QueryCache struct {
 	commands map[string]int // command -> frequency
 	keywords []string       // sorted list of common SQL keywords
+	columns  []string       // cached table columns
+	tables   []string       // cached table names
 }
 
 // NewQueryCache creates a new query cache with common SQL keywords
@@ -47,6 +49,58 @@ func (qc *QueryCache) AddCommand(command string) {
 	}
 }
 
+// isSQLKeyword checks if a word is a known SQL keyword
+func (qc *QueryCache) isSQLKeyword(word string) bool {
+	for _, keyword := range qc.keywords {
+		if keyword == word {
+			return true
+		}
+	}
+	return false
+}
+
+// GetMostUsedCommands returns the most frequently used commands
+func (qc *QueryCache) GetMostUsedCommands(limit int) []string {
+	type commandFreq struct {
+		command string
+		freq    int
+	}
+
+	var commands []commandFreq
+	for cmd, freq := range qc.commands {
+		commands = append(commands, commandFreq{cmd, freq})
+	}
+
+	// Sort by frequency (descending)
+	sort.Slice(commands, func(i, j int) bool {
+		return commands[i].freq > commands[j].freq
+	})
+
+	var result []string
+	for i, cmd := range commands {
+		if i >= limit {
+			break
+		}
+		result = append(result, cmd.command)
+	}
+
+	return result
+}
+
+// CacheColumns caches table columns for autocomplete
+func (qc *QueryCache) CacheColumns(columns []string) {
+	qc.columns = make([]string, len(columns))
+	copy(qc.columns, columns)
+	sort.Strings(qc.columns)
+}
+
+// CacheTables caches table names for autocomplete
+func (qc *QueryCache) CacheTables(tables []string) {
+	qc.tables = make([]string, len(tables))
+	copy(qc.tables, tables)
+	sort.Strings(qc.tables)
+}
+
 // GetSuggestions returns suggestions based on the current input
 func (qc *QueryCache) GetSuggestions(input string) []string {
 	if input == "" {
@@ -60,6 +114,20 @@ func (qc *QueryCache) GetSuggestions(input string) []string {
 	for _, keyword := range qc.keywords {
 		if strings.HasPrefix(keyword, input) {
 			suggestions = append(suggestions, keyword)
+		}
+	}
+
+	// Then, check cached columns
+	for _, column := range qc.columns {
+		if strings.HasPrefix(strings.ToUpper(column), input) {
+			suggestions = append(suggestions, column)
+		}
+	}
+
+	// Then, check cached tables
+	for _, table := range qc.tables {
+		if strings.HasPrefix(strings.ToUpper(table), input) {
+			suggestions = append(suggestions, table)
 		}
 	}
 
@@ -100,42 +168,4 @@ func (qc *QueryCache) GetSuggestions(input string) []string {
 	}
 
 	return uniqueSuggestions
-}
-
-// isSQLKeyword checks if a word is a known SQL keyword
-func (qc *QueryCache) isSQLKeyword(word string) bool {
-	for _, keyword := range qc.keywords {
-		if keyword == word {
-			return true
-		}
-	}
-	return false
-}
-
-// GetMostUsedCommands returns the most frequently used commands
-func (qc *QueryCache) GetMostUsedCommands(limit int) []string {
-	type commandFreq struct {
-		command string
-		freq    int
-	}
-
-	var commands []commandFreq
-	for cmd, freq := range qc.commands {
-		commands = append(commands, commandFreq{cmd, freq})
-	}
-
-	// Sort by frequency (descending)
-	sort.Slice(commands, func(i, j int) bool {
-		return commands[i].freq > commands[j].freq
-	})
-
-	var result []string
-	for i, cmd := range commands {
-		if i >= limit {
-			break
-		}
-		result = append(result, cmd.command)
-	}
-
-	return result
 }

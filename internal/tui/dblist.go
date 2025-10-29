@@ -58,7 +58,7 @@ func (m dbListModel) View() string {
 		Foreground(lipgloss.Color("205")).
 		Bold(true).
 		MarginBottom(1)
-	b.WriteString(headerStyle.Render("Databases on Server"))
+	b.WriteString(headerStyle.Render("Which database do you want to delete?"))
 	b.WriteString("\n\n")
 
 	if len(m.databases) == 0 {

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -14,6 +15,8 @@ type dataViewerModel struct {
 	columns   []table.Column
 	rows      []table.Row
 	done      bool
+	viewport  viewport.Model
+	ready     bool
 }
 
 func initialDataViewerModel(tableName string, columns []table.Column, rows []table.Row) dataViewerModel {
@@ -30,12 +33,29 @@ func (m dataViewerModel) Init() tea.Cmd {
 
 func (m dataViewerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		// Initialize viewport to fit terminal
+		if !m.ready {
+			m.viewport = viewport.New(msg.Width, msg.Height-2)
+			m.viewport.YPosition = 0
+			m.viewport.HighPerformanceRendering = false
+			m.viewport.SetContent(m.renderTable())
+			m.ready = true
+		} else {
+			m.viewport.Width = msg.Width
+			m.viewport.Height = msg.Height - 2
+			m.viewport.SetContent(m.renderTable())
+		}
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q", "esc", "enter":
 			m.done = true
 			return m, tea.Quit
 		}
+		// Let viewport handle scrolling keys
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
 	}
 	return m, nil
 }
@@ -45,121 +65,97 @@ func (m dataViewerModel) View() string {
 		return ""
 	}
 
+	if !m.ready {
+		return "\n  Loading table..."
+	}
+
+	return m.viewport.View()
+}
+
+// renderTable builds the full table content without truncation or hard width caps.
+func (m dataViewerModel) renderTable() string {
 	var b strings.Builder
 
-	// Simple title
+	// Title
 	titleStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("6")).
 		Bold(true).
 		MarginBottom(1)
-	b.WriteString(titleStyle.Render(fmt.Sprintf(" Table: %s (%d rows)", m.tableName, len(m.rows))))
+	b.WriteString(titleStyle.Render(fmt.Sprintf("Table: %s (%d rows)", m.tableName, len(m.rows))))
 	b.WriteString("\n\n")
 
 	if len(m.rows) == 0 {
 		noDataStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("8")).
 			Italic(true)
-		b.WriteString(noDataStyle.Render(" No data found in this table"))
+		b.WriteString(noDataStyle.Render("No data found in this table"))
 		b.WriteString("\n\n")
-	} else {
-		// Calculate dynamic column widths based on actual data
-		columnWidths := make([]int, len(m.columns))
-
-		// Start with header widths
-		for i, col := range m.columns {
-			columnWidths[i] = len(col.Title)
-		}
-
-		// Find maximum width for each column from all data
-		for _, row := range m.rows {
-			for j, cell := range row {
-				cellValue := fmt.Sprintf("%v", cell)
-				if len(cellValue) > columnWidths[j] {
-					columnWidths[j] = len(cellValue)
-				}
-			}
-		}
-
-		// Set minimum and maximum widths
-		for i := range columnWidths {
-			if columnWidths[i] < 8 {
-				columnWidths[i] = 8
-			}
-			if columnWidths[i] > 60 {
-				columnWidths[i] = 60
-			}
-		}
-
-		// Simple table header
-		headerRow := ""
-		for i, col := range m.columns {
-			headerStyle := lipgloss.NewStyle().
-				Foreground(lipgloss.Color("3")).
-				Bold(true)
-			headerText := headerStyle.Render(fmt.Sprintf(" %-*s ", columnWidths[i]-2, col.Title))
-			headerRow += headerText + "│"
-		}
-		b.WriteString("│" + headerRow)
-		b.WriteString("\n")
-
-		// Simple separator
-		separator := "├"
-		for i, width := range columnWidths {
-			separator += strings.Repeat("─", width)
-			if i < len(columnWidths)-1 {
-				separator += "┼"
-			}
-		}
-		separator += "┤"
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Render(separator))
-		b.WriteString("\n")
-
-		// Data rows - show all data with dynamic widths
-		for _, row := range m.rows {
-			// Build row content
-			rowContent := ""
-			for j, cell := range row {
-				// Convert cell to string properly
-				cellValue := fmt.Sprintf("%v", cell)
-
-				// Only truncate if absolutely necessary (very long content)
-				if len(cellValue) > columnWidths[j]-2 {
-					cellValue = cellValue[:columnWidths[j]-5] + "..."
-				}
-
-				// Pad the cell content with dynamic width
-				paddedValue := fmt.Sprintf(" %-*s ", columnWidths[j]-2, cellValue)
-				rowContent += paddedValue + "│"
-			}
-
-			// Style the row
-			normalStyle := lipgloss.NewStyle().
-				Foreground(lipgloss.Color("7"))
-			b.WriteString("│" + normalStyle.Render(rowContent))
-			b.WriteString("\n")
-		}
-
-		// Bottom border
-		bottomBorder := "└"
-		for i, width := range columnWidths {
-			bottomBorder += strings.Repeat("─", width)
-			if i < len(columnWidths)-1 {
-				bottomBorder += "┴"
-			}
-		}
-		bottomBorder += "┘"
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Render(bottomBorder))
-		b.WriteString("\n")
-
+		return b.String()
 	}
 
-	// Simple footer
+	// Calculate dynamic column widths from the data (no truncation)
+	columnWidths := make([]int, len(m.columns))
+	for i, col := range m.columns {
+		columnWidths[i] = len(col.Title)
+	}
+	for _, row := range m.rows {
+		for j, cell := range row {
+			cellValue := fmt.Sprintf("%v", cell)
+			if len(cellValue) > columnWidths[j] {
+				columnWidths[j] = len(cellValue)
+			}
+		}
+	}
+	for i := range columnWidths {
+		if columnWidths[i] < 1 {
+			columnWidths[i] = 1
+		}
+	}
+
+	// Helper to render a row given a slice of strings
+	renderRow := func(values []string) string {
+		var parts []string
+		for i, v := range values {
+			parts = append(parts, fmt.Sprintf("%-*s", columnWidths[i], v))
+		}
+		return " " + strings.Join(parts, " | ") + " \n"
+	}
+
+	// Header
+	headers := make([]string, len(m.columns))
+	for i, col := range m.columns {
+		headers[i] = col.Title
+	}
+	b.WriteString(renderRow(headers))
+
+	// Separator
+	sepParts := make([]string, len(columnWidths))
+	totalLen := 1 // leading space
+	for i, w := range columnWidths {
+		dashes := strings.Repeat("-", w)
+		sepParts[i] = dashes
+		totalLen += w
+		if i < len(columnWidths)-1 {
+			totalLen += 3 // " | "
+		}
+	}
+	b.WriteString(" " + strings.Join(sepParts, "-+-") + " \n")
+
+	// Rows
+	for _, row := range m.rows {
+		cells := make([]string, len(row))
+		for j, cell := range row {
+			cells[j] = fmt.Sprintf("%v", cell)
+		}
+		b.WriteString(renderRow(cells))
+	}
+
 	b.WriteString("\n")
 	footerStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("8")).
 		Italic(true)
+	b.WriteString(footerStyle.Render("Use arrow keys/PageUp/PageDown to scroll, q to close"))
 
-	b.WriteString(footerStyle.Render("Press any key to close"))
 	return b.String()
 }
 

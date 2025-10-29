@@ -185,3 +185,57 @@ func DeleteDatabase(adminDB *sql.DB, dbType, dbName string) error {
 
 	return nil
 }
+
+// GetAllColumns returns all column names from all tables in the database
+func GetAllColumns(db *sql.DB) ([]string, error) {
+	query := `
+		SELECT DISTINCT column_name 
+		FROM information_schema.columns 
+		WHERE table_schema = 'public' 
+		ORDER BY column_name
+	`
+
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var columns []string
+	for rows.Next() {
+		var columnName string
+		if err := rows.Scan(&columnName); err != nil {
+			return nil, err
+		}
+		columns = append(columns, columnName)
+	}
+
+	return columns, nil
+}
+
+// GetAllTables returns all table names from the database
+func GetAllTables(db *sql.DB) ([]string, error) {
+	query := `
+		SELECT table_name 
+		FROM information_schema.tables 
+		WHERE table_schema = 'public' 
+		ORDER BY table_name
+	`
+
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err != nil {
+			return nil, err
+		}
+		tables = append(tables, tableName)
+	}
+
+	return tables, nil
+}
