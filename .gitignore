@@ -42,3 +42,4 @@ about/
 .cursor/
 # Added by goreleaser init:
 dist/
+maximm
