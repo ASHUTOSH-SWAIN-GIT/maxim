@@ -164,6 +164,76 @@ func GetTableData(db *sql.DB, tableName string) ([]table.Column, []table.Row, er
 	return cols, tableRows, nil
 }
 
+// GetTableDataPage fetches a page of rows using LIMIT and OFFSET for pagination.
+func GetTableDataPage(dbConn *sql.DB, tableName string, limit, offset int) ([]table.Column, []table.Row, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	query := fmt.Sprintf("SELECT * FROM %s LIMIT %d OFFSET %d", pq.QuoteIdentifier(tableName), limit, offset)
+	rows, err := dbConn.Query(query)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	colNames, err := rows.Columns()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	cols := make([]table.Column, len(colNames))
+	for i, colName := range colNames {
+		cols[i] = table.Column{Title: colName, Width: 20}
+	}
+
+	var tableRows []table.Row
+	for rows.Next() {
+		rowVals := make([]interface{}, len(colNames))
+		scanArgs := make([]interface{}, len(colNames))
+		for i := range rowVals {
+			scanArgs[i] = &rowVals[i]
+		}
+		if err := rows.Scan(scanArgs...); err != nil {
+			return nil, nil, err
+		}
+
+		row := make(table.Row, len(colNames))
+		for i, val := range rowVals {
+			if val == nil {
+				row[i] = "NULL"
+			} else {
+				switch v := val.(type) {
+				case []byte:
+					row[i] = string(v)
+				case string:
+					row[i] = v
+				case int64:
+					row[i] = fmt.Sprintf("%d", v)
+				case int32:
+					row[i] = fmt.Sprintf("%d", v)
+				case int:
+					row[i] = fmt.Sprintf("%d", v)
+				case float64:
+					row[i] = fmt.Sprintf("%.2f", v)
+				case float32:
+					row[i] = fmt.Sprintf("%.2f", v)
+				case bool:
+					row[i] = fmt.Sprintf("%t", v)
+				default:
+					row[i] = fmt.Sprintf("%v", v)
+				}
+			}
+		}
+		tableRows = append(tableRows, row)
+	}
+
+	return cols, tableRows, nil
+}
+
 func DeleteDatabase(adminDB *sql.DB, dbType, dbName string) error {
 	if dbType != "psql" {
 		return fmt.Errorf("unsupported database type: %s", dbType)

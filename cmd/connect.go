@@ -64,19 +64,7 @@ var connectCmd = &cobra.Command{
 			}
 
 			switch choice {
-			case 0: // List all tables
-				tables, err := db.GetTables(conn)
-				if err != nil {
-					fmt.Printf("Error fetching tables: %v\n", err)
-					continue
-				}
-				selectedTable, err := tui.RunTableList(tables)
-				if err != nil {
-					continue
-				}
-				fmt.Printf("Selected table: %s\n", selectedTable)
-
-			case 1: // Show table data
+			case 0: // Show table data
 				tables, err := db.GetTables(conn)
 				if err != nil {
 					fmt.Printf("Error fetching tables: %v\n", err)
@@ -87,22 +75,15 @@ var connectCmd = &cobra.Command{
 					continue
 				}
 
-				columns, rows, err := db.GetTableData(conn, selectedTable)
-				if err != nil {
-					fmt.Printf("Error fetching table data: %v\n", err)
-					continue
-				}
-
-				if err := tui.RunDataViewer(selectedTable, columns, rows); err != nil {
+				if err := tui.RunPagedDataViewer(conn, selectedTable); err != nil {
 					fmt.Printf("Error displaying data: %v\n", err)
 				}
 
-			case 2: // Editor
+			case 1: // Editor
 				if err := tui.RunSQLEditor(conn, result.DBName); err != nil {
 					fmt.Printf("Error running SQL editor: %v\n", err)
 				}
-
-			case 3: // Back to main menu
+			default:
 				return
 			}
 		}

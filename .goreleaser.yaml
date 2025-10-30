@@ -65,19 +65,19 @@ release:
   footer: |
     ## What's New in v{{ .Version }}
     
-    ### ✨ New Features
+    ###  New Features
     - **SQL Autocomplete**: Intelligent autocomplete for SQL keywords and commands
     - **Query Caching**: Learn from your queries to provide better suggestions
     - **Enhanced UI**: Symmetrical panels with improved visual design
     - **Better Connect Command**: Connect command now behaves like TUI version
     
-    ### 🔧 Improvements
+    ###  Improvements
     - Fixed panel height and width asymmetry
     - Improved suggestion display in right panel
     - Enhanced keyboard navigation (Tab to cycle, Enter to select)
     - Better error handling and user experience
     
-    ### 🐛 Bug Fixes
+    ###  Bug Fixes
     - Fixed connect command exiting after connection
     - Fixed suggestion clearing after selection
     - Fixed panel resizing issues

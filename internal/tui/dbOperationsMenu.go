@@ -20,7 +20,6 @@ func initialDBOperationsModel(dbName string) dbOperationsModel {
 	return dbOperationsModel{
 		dbName: dbName,
 		choices: []string{
-			"List all tables",
 			"Show table data",
 			"Editor",
 		},

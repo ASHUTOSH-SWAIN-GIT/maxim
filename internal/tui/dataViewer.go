@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"database/sql"
+
+	"github.com/ASHUTOSH-SWAIN-GIT/maxim/internal/db"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -11,19 +14,23 @@ import (
 )
 
 type dataViewerModel struct {
+	db        *sql.DB
 	tableName string
 	columns   []table.Column
 	rows      []table.Row
 	done      bool
 	viewport  viewport.Model
 	ready     bool
+	limit     int
+	offset    int
 }
 
-func initialDataViewerModel(tableName string, columns []table.Column, rows []table.Row) dataViewerModel {
+func initialDataViewerModel(conn *sql.DB, tableName string, limit int) dataViewerModel {
 	return dataViewerModel{
+		db:        conn,
 		tableName: tableName,
-		columns:   columns,
-		rows:      rows,
+		limit:     limit,
+		offset:    0,
 	}
 }
 
@@ -39,16 +46,26 @@ func (m dataViewerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport = viewport.New(msg.Width, msg.Height-2)
 			m.viewport.YPosition = 0
 			m.viewport.HighPerformanceRendering = false
+			m.loadPage()
 			m.viewport.SetContent(m.renderTable())
 			m.ready = true
 		} else {
 			m.viewport.Width = msg.Width
 			m.viewport.Height = msg.Height - 2
+			if len(m.rows) == 0 {
+				m.loadPage()
+			}
 			m.viewport.SetContent(m.renderTable())
 		}
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "q", "esc", "enter":
+		case "enter":
+			// Load next page
+			m.offset += m.limit
+			m.loadPage()
+			m.viewport.SetContent(m.renderTable())
+			return m, nil
+		case "ctrl+c", "q", "esc":
 			m.done = true
 			return m, tea.Quit
 		}
@@ -159,8 +176,26 @@ func (m dataViewerModel) renderTable() string {
 	return b.String()
 }
 
-func RunDataViewer(tableName string, columns []table.Column, rows []table.Row) error {
-	p := tea.NewProgram(initialDataViewerModel(tableName, columns, rows))
+// RunPagedDataViewer opens a viewer that loads 100-row pages on demand (Enter to load more)
+func RunPagedDataViewer(conn *sql.DB, tableName string) error {
+	p := tea.NewProgram(initialDataViewerModel(conn, tableName, 100))
 	_, err := p.Run()
 	return err
+}
+
+func (m *dataViewerModel) loadPage() {
+	if m.db == nil {
+		return
+	}
+	cols, rows, err := db.GetTableDataPage(m.db, m.tableName, m.limit, m.offset)
+	if err != nil {
+		// Render error message
+		m.columns = []table.Column{{Title: "error", Width: 20}}
+		m.rows = []table.Row{{fmt.Sprintf("%v", err)}}
+		return
+	}
+	if len(m.columns) == 0 {
+		m.columns = cols
+	}
+	m.rows = rows
 }
