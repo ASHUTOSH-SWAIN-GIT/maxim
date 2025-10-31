@@ -38,8 +38,6 @@ var connectCmd = &cobra.Command{
 		}
 		defer conn.Close()
 
-		fmt.Println("\n Connected successfully!")
-
 		detailsToSave := config.ConnectionDetails{
 			Host:   "localhost",
 			Port:   result.Port,
@@ -94,32 +92,52 @@ var connectCmd = &cobra.Command{
 					continue
 				}
 
-				dbURI := fmt.Sprintf("postgresql+psycopg2://%s:%s@localhost:%s/%s", result.User, result.Password, result.Port, result.DBName)
+				stopLoading := showLoadingMessage("Starting API server")
+				apiProc, err := startPythonAPI()
+				stopLoading()
+				if err != nil {
+					fmt.Printf("Failed to start NL2SQL server: %v\n", err)
+					continue
+				}
+				defer stopPythonAPI(apiProc)
+
+				dbURI := fmt.Sprintf("postgresql://%s:%s@localhost:%s/%s", result.User, result.Password, result.Port, result.DBName)
 				payload := map[string]string{
 					"nl_query": form.NL,
 					"db_uri":   dbURI,
 				}
 				body, _ := json.Marshal(payload)
+
+				stopLoading = showLoadingMessage("Generating SQL query")
 				resp, err := http.Post("http://127.0.0.1:5000/generate-sql", "application/json", bytes.NewReader(body))
+				stopLoading()
 				if err != nil {
 					fmt.Printf("Error calling NL2SQL API: %v\n", err)
+					stopPythonAPI(apiProc)
 					continue
 				}
 				respBody, _ := io.ReadAll(resp.Body)
 				resp.Body.Close()
+				stopPythonAPI(apiProc)
 				if resp.StatusCode != 200 {
 					fmt.Printf("NL2SQL API error: %s\n", string(respBody))
 					continue
 				}
 				sql := strings.TrimSpace(string(respBody))
+
+				stopLoading = showLoadingMessage("Executing query")
 				res := db.ExecuteQuery(conn, sql)
+				stopLoading()
 				if res.Success {
-					// Print only the result table, strip leading success header if present
 					out := res.Data
 					out = strings.Replace(out, "Query executed successfully!\n\n", "", 1)
-					fmt.Println(out)
+					if err := tui.WaitForEsc(out); err != nil {
+						fmt.Printf("Error displaying results: %v\n", err)
+					}
 				} else {
-					fmt.Println(res.Error)
+					if err := tui.WaitForEsc(res.Error); err != nil {
+						fmt.Printf("Error displaying error: %v\n", err)
+					}
 				}
 			default:
 				return

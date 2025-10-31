@@ -65,3 +65,39 @@ func (m NLFormModel) View() string {
 	}
 	return "Enter NL query and press Enter to submit, Esc to cancel:\n\n" + m.input.View() + "\n"
 }
+
+// WaitForEsc creates a simple TUI that displays content and waits for Esc key
+type waitForEscModel struct {
+	content string
+	done    bool
+}
+
+func WaitForEsc(content string) error {
+	m := waitForEscModel{content: content}
+	p := tea.NewProgram(m)
+	_, err := p.Run()
+	return err
+}
+
+func (m waitForEscModel) Init() tea.Cmd {
+	return nil
+}
+
+func (m waitForEscModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc", "q", "ctrl+c":
+			m.done = true
+			return m, tea.Quit
+		}
+	}
+	return m, nil
+}
+
+func (m waitForEscModel) View() string {
+	if m.done {
+		return ""
+	}
+	return m.content + "\n\nPress Esc to return to menu..."
+}

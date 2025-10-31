@@ -6,3 +6,10 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# PyInstaller build artifacts
+*.spec
+build/
+dist/
+maxim-nl-api/dist/
+maxim-nl-api/build/
