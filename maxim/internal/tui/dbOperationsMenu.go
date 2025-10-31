@@ -22,6 +22,7 @@ func initialDBOperationsModel(dbName string) dbOperationsModel {
 		choices: []string{
 			"Show table data",
 			"Editor",
+			"NL2SQL",
 		},
 	}
 }

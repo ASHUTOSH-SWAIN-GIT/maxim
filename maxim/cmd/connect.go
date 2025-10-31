@@ -1,8 +1,13 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"strings"
 
 	"github.com/ASHUTOSH-SWAIN-GIT/maxim/internal/config"
 	"github.com/ASHUTOSH-SWAIN-GIT/maxim/internal/db"
@@ -82,6 +87,39 @@ var connectCmd = &cobra.Command{
 			case 1: // Editor
 				if err := tui.RunSQLEditor(conn, result.DBName); err != nil {
 					fmt.Printf("Error running SQL editor: %v\n", err)
+				}
+			case 2: // NL2SQL
+				form, err := tui.RunNL2SQLForm()
+				if err != nil || form.Quitting || form.NL == "" {
+					continue
+				}
+
+				dbURI := fmt.Sprintf("postgresql+psycopg2://%s:%s@localhost:%s/%s", result.User, result.Password, result.Port, result.DBName)
+				payload := map[string]string{
+					"nl_query": form.NL,
+					"db_uri":   dbURI,
+				}
+				body, _ := json.Marshal(payload)
+				resp, err := http.Post("http://127.0.0.1:5000/generate-sql", "application/json", bytes.NewReader(body))
+				if err != nil {
+					fmt.Printf("Error calling NL2SQL API: %v\n", err)
+					continue
+				}
+				respBody, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				if resp.StatusCode != 200 {
+					fmt.Printf("NL2SQL API error: %s\n", string(respBody))
+					continue
+				}
+				sql := strings.TrimSpace(string(respBody))
+				res := db.ExecuteQuery(conn, sql)
+				if res.Success {
+					// Print only the result table, strip leading success header if present
+					out := res.Data
+					out = strings.Replace(out, "Query executed successfully!\n\n", "", 1)
+					fmt.Println(out)
+				} else {
+					fmt.Println(res.Error)
 				}
 			default:
 				return
