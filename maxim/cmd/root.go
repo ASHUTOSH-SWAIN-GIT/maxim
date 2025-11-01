@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -41,29 +42,127 @@ func showLoadingMessage(msg string) func() {
 	}
 }
 
-func startPythonAPI() (*exec.Cmd, error) {
-	root, err := locateRepoRootForPy()
-	if err != nil {
-		return nil, fmt.Errorf("failed to locate repo root: %w", err)
+// getBinaryName returns the platform-specific binary name
+func getBinaryName() string {
+	if runtime.GOOS == "windows" {
+		return "maxim-nl-api.exe"
+	}
+	return "maxim-nl-api"
+}
+
+// locateNLAPIBinary finds the maxim-nl-api binary
+// Works in both development and release scenarios
+func locateNLAPIBinary() (string, error) {
+	binaryName := getBinaryName()
+
+	// Strategy 1: Check alongside the maxim executable (release scenario)
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		// Check same directory (onefile mode)
+		binaryPath := filepath.Join(exeDir, binaryName)
+		if _, err := os.Stat(binaryPath); err == nil {
+			return binaryPath, nil
+		}
+		// Check in a subdirectory (onedir mode: maxim-nl-api/maxim-nl-api)
+		binaryPath = filepath.Join(exeDir, "maxim-nl-api", binaryName)
+		if _, err := os.Stat(binaryPath); err == nil {
+			return binaryPath, nil
+		}
+		// Check in a 'bin' subdirectory
+		binaryPath = filepath.Join(exeDir, "bin", binaryName)
+		if _, err := os.Stat(binaryPath); err == nil {
+			return binaryPath, nil
+		}
 	}
 
+	// Strategy 2: Check development location (for testing during development)
+	root, err := locateRepoRootForPy()
+	if err == nil {
+		// Check in dist folder - both onefile and onedir modes
+		// onedir mode: dist/maxim-nl-api/maxim-nl-api
+		onedirPath := filepath.Join(root, "maxim-nl-api", "dist", "maxim-nl-api", binaryName)
+		if _, err := os.Stat(onedirPath); err == nil {
+			return onedirPath, nil
+		}
+		// onefile mode: dist/maxim-nl-api (single executable)
+		onefilePath := filepath.Join(root, "maxim-nl-api", "dist", binaryName)
+		if _, err := os.Stat(onefilePath); err == nil {
+			return onefilePath, nil
+		}
+	}
+
+	// Strategy 3: Fallback to Python/uvicorn (development only)
 	// Try to find Python with uvicorn - check venv first, then system
 	pythonCmd := "python"
-	venvPath := filepath.Join(root, "maxim-nl-api", "myenv", "bin", "python")
-	if _, err := os.Stat(venvPath); err == nil {
-		pythonCmd = venvPath
+	venvPath := ""
+	if root != "" {
+		if runtime.GOOS == "windows" {
+			venvPath = filepath.Join(root, "maxim-nl-api", "myenv", "Scripts", "python.exe")
+		} else {
+			venvPath = filepath.Join(root, "maxim-nl-api", "myenv", "bin", "python")
+		}
+		if _, err := os.Stat(venvPath); err == nil {
+			pythonCmd = venvPath
+		}
 	}
 
-	cmd := exec.Command(pythonCmd, "-m", "uvicorn", "maxim-nl-api.main:app", "--host", "127.0.0.1", "--port", "5000")
+	// Check if python can run uvicorn
+	if _, err := exec.Command(pythonCmd, "-m", "uvicorn", "--version").CombinedOutput(); err == nil {
+		// Return a special marker that we'll handle in startPythonAPI
+		return "python:" + pythonCmd, nil
+	}
+
+	// Strategy 4: Check system PATH
+	if binaryPath, err := exec.LookPath(binaryName); err == nil {
+		return binaryPath, nil
+	}
+
+	return "", fmt.Errorf("could not locate maxim-nl-api binary. Please ensure it is installed alongside maxim or in your PATH")
+}
+
+func startPythonAPI() (*exec.Cmd, error) {
+	// Ensure GOOGLE_API_KEY is set
+	if apiKey := os.Getenv("GOOGLE_API_KEY"); apiKey == "" {
+		return nil, fmt.Errorf("GOOGLE_API_KEY environment variable is not set. Please export it:\n  export GOOGLE_API_KEY=your_key_here")
+	}
+
+	// Locate the binary or Python
+	binaryPath, err := locateNLAPIBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	var cmd *exec.Cmd
+
+	// Check if we're using Python (development fallback)
+	if strings.HasPrefix(binaryPath, "python:") {
+		pythonCmd := strings.TrimPrefix(binaryPath, "python:")
+		root, _ := locateRepoRootForPy()
+		cmd = exec.Command(pythonCmd, "-m", "uvicorn", "maxim-nl-api.main:app", "--host", "127.0.0.1", "--port", "5000")
+		if root != "" {
+			cmd.Dir = root
+		}
+	} else {
+		// Use the frozen binary
+		cmd = exec.Command(binaryPath)
+
+		// Make sure binary is executable (Unix/Linux)
+		if runtime.GOOS != "windows" {
+			if err := os.Chmod(binaryPath, 0755); err != nil {
+				// Non-fatal, continue
+			}
+		}
+	}
+
+	// Prepare environment variables
 	cmd.Env = os.Environ()
-	cmd.Dir = root
 
 	// Capture stderr to see startup errors
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start Python process: %w", err)
+		return nil, fmt.Errorf("failed to start NL2SQL server: %w", err)
 	}
 
 	// Give it a moment to start
@@ -89,11 +188,7 @@ func startPythonAPI() (*exec.Cmd, error) {
 
 	stderrOutput := stderr.String()
 	if stderrOutput != "" {
-		hint := ""
-		if strings.Contains(stderrOutput, "No module named uvicorn") {
-			hint = "\n\nHint: Make sure uvicorn is installed. If using venv, ensure maxim-nl-api/myenv/bin/python exists and has uvicorn installed."
-		}
-		return nil, fmt.Errorf("NL2SQL server failed to start (timeout after 60s). Error output:\n%s%s", stderrOutput, hint)
+		return nil, fmt.Errorf("NL2SQL server failed to start (timeout after 60s). Error output:\n%s", stderrOutput)
 	}
 	return nil, fmt.Errorf("NL2SQL server did not start in time (timeout after 60s). Check if port 5000 is available")
 }

@@ -9,6 +9,9 @@ before:
   hooks:
     - go mod tidy
     - go generate ./...
+    # Note: maxim-nl-api binary should be built manually before release
+    # or use a script here to build it for each platform
+    # Example: cd ../maxim-nl-api && pyinstaller maxim-nl-api.spec
 
 builds:
   - env:
@@ -41,6 +44,12 @@ archives:
       - README.md
       - LICENSE
       - config.yaml
+      # Include maxim-nl-api directory (onedir mode - must be built before release using PyInstaller)
+      # Note: Build the Python binary for each platform before running GoReleaser
+      # GoReleaser will skip files that don't exist (non-fatal)
+      # In onedir mode, PyInstaller creates a directory with the executable and dependencies
+      - src: ../maxim-nl-api/dist/maxim-nl-api
+        dst: maxim-nl-api
 
 checksum:
   name_template: 'checksums.txt'
