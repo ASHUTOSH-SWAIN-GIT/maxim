@@ -38,7 +38,6 @@ archives:
       - goos: windows
         formats: [zip]
     files:
-      - README.md
       - LICENSE
       - config.yaml
 
