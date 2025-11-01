@@ -9,12 +9,12 @@
 ## Features
 
 - 🚀 **Fast & Modern TUI** - Beautiful, keyboard-driven interface built with [Bubble Tea](https://github.com/charmbracelet/bubbletea)
-- 💾 **Database Management** - Create, list, and delete PostgreSQL databases
-- 📊 **Table Browser** - Browse tables and view data with pagination (100 rows per page)
-- ✏️ **SQL Editor** - Write and execute SQL queries with syntax highlighting
-- 🔍 **Intelligent Autocomplete** - Smart suggestions for SQL keywords, table names, and column names
-- ⌨️ **Keyboard-Driven** - Full keyboard navigation—no mouse required
-- 💾 **Connection Management** - Save and reuse database connections securely
+-  **Database Management** - Create, list, and delete PostgreSQL databases
+-  **Table Browser** - Browse tables and view data with pagination (100 rows per page)
+-  **SQL Editor** - Write and execute SQL queries with syntax highlighting
+-  **Intelligent Autocomplete** - Smart suggestions for SQL keywords, table names, and column names
+-  **Keyboard-Driven** - Full keyboard navigation—no mouse required
+-  **Connection Management** - Save and reuse database connections securely
 
 ## Installation
 
@@ -37,11 +37,47 @@ The binary will be installed to your `$GOPATH/bin` or `$GOBIN` directory (typica
 maxim --version
 ```
 
-**Note:** If `maxim` command is not found, ensure `~/go/bin` is in your PATH:
+**Adding to PATH (if command not found):**
+
+If the `maxim` command is not found after installation, you need to add Go's bin directory to your PATH:
+
+**Linux/macOS:**
+
+For **Bash** (add to `~/.bashrc`):
 ```bash
-# Add to ~/.bashrc, ~/.zshrc, or ~/.profile
-export PATH=$PATH:$(go env GOPATH)/bin
+echo 'export PATH=$PATH:$(go env GOPATH)/bin' >> ~/.bashrc
+source ~/.bashrc
 ```
+
+For **Zsh** (add to `~/.zshrc`):
+```bash
+echo 'export PATH=$PATH:$(go env GOPATH)/bin' >> ~/.zshrc
+source ~/.zshrc
+```
+
+For **Fish** (add to `~/.config/fish/config.fish`):
+```bash
+echo 'set -gx PATH $PATH (go env GOPATH)/bin' >> ~/.config/fish/config.fish
+source ~/.config/fish/config.fish
+```
+
+**Windows (PowerShell):**
+
+```powershell
+# Add to PowerShell profile (run once)
+[System.Environment]::SetEnvironmentVariable('Path', $env:Path + ";$env:USERPROFILE\go\bin", 'User')
+
+# Or manually add C:\Users\<YourUsername>\go\bin to your PATH environment variable
+```
+
+**Windows (Command Prompt):**
+
+```cmd
+# Add to PATH permanently (replace <username> with your username)
+setx PATH "%PATH%;C:\Users\<username>\go\bin"
+```
+
+After adding to PATH, restart your terminal or run `source ~/.bashrc` (Linux/macOS) / restart PowerShell (Windows).
 
 ### Alternative: Download Pre-built Binaries
 
