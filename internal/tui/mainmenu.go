@@ -28,7 +28,7 @@ func (m mainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "q":
+		case "ctrl+c", "q", "esc":
 			m.quitting = true
 			return m, tea.Quit
 		case "up", "k":
@@ -62,7 +62,7 @@ func (m mainMenuModel) View() string {
 		b.WriteString(fmt.Sprintf("%s %s\n", cursor, choice))
 	}
 
-	b.WriteString("\n(press q to quit)")
+	b.WriteString("\n(press Enter to submit, Esc to quit)")
 	return b.String()
 }
 

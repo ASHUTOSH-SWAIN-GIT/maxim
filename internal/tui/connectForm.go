@@ -57,16 +57,10 @@ func initialConnectFormModel() ConnectFormModel {
 
 		switch i {
 		case 0:
-			t.Placeholder = "5432"
 			t.Focus()
-		case 1:
-			t.Placeholder = "postgres"
 		case 2:
-			t.Placeholder = "password"
 			t.EchoMode = textinput.EchoPassword
 			t.EchoCharacter = '•'
-		case 3:
-			t.Placeholder = "postgres"
 		}
 		m.Inputs[i] = t
 	}
@@ -119,7 +113,6 @@ func (m ConnectFormModel) View() string {
 		b.WriteString(m.Inputs[i].View())
 		b.WriteRune('\n')
 	}
-	b.WriteString("\n(press Enter to submit, Esc to quit)")
 	return b.String()
 }
 

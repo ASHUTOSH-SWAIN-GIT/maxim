@@ -52,15 +52,10 @@ func initialAdminFormModel() AdminFormModel {
 
 		switch i {
 		case 0:
-			t.Placeholder = "postgres"
 			t.Focus()
 		case 1:
-			t.Placeholder = "password"
 			t.EchoMode = textinput.EchoPassword
 			t.EchoCharacter = '•'
-		case 2:
-			t.Placeholder = "5432"
-			t.SetValue("5432")
 		}
 		m.Inputs[i] = t
 	}
@@ -115,7 +110,6 @@ func (m AdminFormModel) View() string {
 		b.WriteRune('\n')
 	}
 
-	b.WriteString("\n(press Enter to submit, Esc to quit)")
 	return b.String()
 }
 

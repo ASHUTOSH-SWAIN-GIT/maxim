@@ -80,7 +80,6 @@ func (m tableListModel) View() string {
 		}
 	}
 
-	b.WriteString("\n(press Enter to select, q to quit)")
 	return b.String()
 }
 

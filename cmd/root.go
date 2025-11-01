@@ -146,12 +146,10 @@ create new databases, and perform various database operations.`,
 				os.Exit(1)
 			}
 
-			selectedDB, err := tui.RunDBList(dbNames)
-			if err != nil {
-				fmt.Printf("Error selecting database: %v\n", err)
+			if err := tui.RunDBListDisplay(dbNames); err != nil {
+				fmt.Printf("Error displaying databases: %v\n", err)
 				os.Exit(1)
 			}
-			fmt.Printf("Selected database: %s\n", selectedDB)
 		case 3:
 			// Delete database flow
 			adminInfo, err := getAdminConnectionInfo()

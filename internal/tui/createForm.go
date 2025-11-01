@@ -36,12 +36,8 @@ func initialCreateFormModel() CreateFormModel {
 
 		switch i {
 		case 0:
-			t.Placeholder = "new_db_name"
 			t.Focus()
-		case 1:
-			t.Placeholder = "new_user"
 		case 2:
-			t.Placeholder = "password"
 			t.EchoMode = textinput.EchoPassword
 			t.EchoCharacter = '•'
 		}
@@ -96,7 +92,6 @@ func (m CreateFormModel) View() string {
 		b.WriteRune('\n')
 	}
 
-	b.WriteString("\n(press Enter to submit, Esc to quit)")
 	return b.String()
 }
 

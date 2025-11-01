@@ -80,10 +80,10 @@ func (m dbListModel) View() string {
 		}
 	}
 
-	b.WriteString("\n(press Enter to select, q to quit)")
 	return b.String()
 }
 
+// RunDBList is used for selection (e.g., when deleting a database)
 func RunDBList(databases []string) (string, error) {
 	p := tea.NewProgram(initialDBListModel(databases))
 	m, err := p.Run()
@@ -96,4 +96,71 @@ func RunDBList(databases []string) (string, error) {
 		return model.databases[model.cursor], nil
 	}
 	return "", fmt.Errorf("no database selected")
+}
+
+// Simple display-only model for listing databases
+type dbListDisplayModel struct {
+	databases []string
+	done      bool
+}
+
+func initialDBListDisplayModel(databases []string) dbListDisplayModel {
+	return dbListDisplayModel{
+		databases: databases,
+	}
+}
+
+func (m dbListDisplayModel) Init() tea.Cmd {
+	return nil
+}
+
+func (m dbListDisplayModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q", "esc":
+			m.done = true
+			return m, tea.Quit
+		}
+	}
+	return m, nil
+}
+
+func (m dbListDisplayModel) View() string {
+	if m.done {
+		return ""
+	}
+
+	var b strings.Builder
+
+	// Header
+	headerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("205")).
+		Bold(true).
+		MarginBottom(1)
+	b.WriteString(headerStyle.Render("Databases on Server"))
+	b.WriteString("\n\n")
+
+	if len(m.databases) == 0 {
+		noDataStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("8")).
+			Italic(true)
+		b.WriteString(noDataStyle.Render("No databases found on this server."))
+		b.WriteString("\n")
+	} else {
+		for _, db := range m.databases {
+			dbStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("6"))
+			b.WriteString(fmt.Sprintf("  %s\n", dbStyle.Render(db)))
+		}
+	}
+
+	return b.String()
+}
+
+// RunDBListDisplay simply displays all databases without selection
+func RunDBListDisplay(databases []string) error {
+	p := tea.NewProgram(initialDBListDisplayModel(databases))
+	_, err := p.Run()
+	return err
 }

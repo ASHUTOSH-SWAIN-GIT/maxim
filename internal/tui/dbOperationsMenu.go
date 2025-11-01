@@ -79,7 +79,6 @@ func (m dbOperationsModel) View() string {
 		b.WriteString(fmt.Sprintf("%s %s\n", cursor, choice))
 	}
 
-	b.WriteString("\n(press q to quit)")
 	return b.String()
 }
 

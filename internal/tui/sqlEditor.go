@@ -30,7 +30,6 @@ type sqlEditorModel struct {
 
 func initialSQLEditorModel(conn *sql.DB, dbName string) sqlEditorModel {
 	ta := textarea.New()
-	ta.Placeholder = "Enter your SQL query here...\n\nExample:\nSELECT * FROM users;\nINSERT INTO users (name) VALUES ('John');\nUPDATE users SET name = 'Jane' WHERE id = 1;"
 	ta.Focus()
 	ta.CharLimit = 0
 	ta.SetWidth(50)
