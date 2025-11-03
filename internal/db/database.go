@@ -239,6 +239,13 @@ func DeleteDatabase(adminDB *sql.DB, dbType, dbName string) error {
 		return fmt.Errorf("unsupported database type: %s", dbType)
 	}
 
+	// Determine the owner role of the database before dropping it
+	var ownerRole string
+	if err := adminDB.QueryRow("SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = $1", dbName).Scan(&ownerRole); err != nil {
+		// Non-fatal: proceed even if we can't determine owner
+		ownerRole = ""
+	}
+
 	// Terminate all connections to the database first
 	if _, err := adminDB.Exec(fmt.Sprintf(`
 		SELECT pg_terminate_backend(pid) 
@@ -251,6 +258,20 @@ func DeleteDatabase(adminDB *sql.DB, dbType, dbName string) error {
 	// Drop the database
 	if _, err := adminDB.Exec(fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(dbName))); err != nil {
 		return fmt.Errorf("could not delete database: %w", err)
+	}
+
+	// After dropping the database, attempt to drop the associated owner role
+	// Skip dropping well-known/protected roles
+	if ownerRole != "" {
+		switch ownerRole {
+		case "postgres", "rdsadmin", "azure_superuser", "cloudsqladmin":
+			// do not attempt to drop protected roles
+		default:
+			// Best-effort: drop the role if it exists
+			if _, err := adminDB.Exec(fmt.Sprintf("DROP ROLE IF EXISTS %s", pq.QuoteIdentifier(ownerRole))); err != nil {
+				// Ignore errors here; role might own objects elsewhere or be in use
+			}
+		}
 	}
 
 	return nil

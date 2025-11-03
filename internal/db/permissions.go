@@ -13,20 +13,22 @@ func CreateDBAndUser(adminDB *sql.DB, dbType, dbName, newUser, newPassword, admi
 		return fmt.Errorf("unsupported database type: %s", dbType)
 	}
 
-	// Create the database
-	if _, err := adminDB.Exec(fmt.Sprintf("CREATE DATABASE %s", pq.QuoteIdentifier(dbName))); err != nil {
-		return fmt.Errorf("could not create database: %w", err)
-	}
+    // Create the user first; if it already exists, continue
+    if _, err := adminDB.Exec(fmt.Sprintf("CREATE USER %s WITH PASSWORD '%s'", pq.QuoteIdentifier(newUser), newPassword)); err != nil {
+        if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "42710" { // duplicate_object (role exists)
+            // Optionally, update password for existing user
+            if _, alterErr := adminDB.Exec(fmt.Sprintf("ALTER USER %s WITH PASSWORD '%s'", pq.QuoteIdentifier(newUser), newPassword)); alterErr != nil {
+                // Non-fatal: continue even if password change fails
+            }
+        } else {
+            return fmt.Errorf("could not create user: %w", err)
+        }
+    }
 
-	// Create the user
-	if _, err := adminDB.Exec(fmt.Sprintf("CREATE USER %s WITH PASSWORD '%s'", pq.QuoteIdentifier(newUser), newPassword)); err != nil {
-		return fmt.Errorf("could not create user: %w", err)
-	}
-
-	// Make the new user the owner of the database
-	if _, err := adminDB.Exec(fmt.Sprintf("ALTER DATABASE %s OWNER TO %s", pq.QuoteIdentifier(dbName), pq.QuoteIdentifier(newUser))); err != nil {
-		return fmt.Errorf("could not set database owner: %w", err)
-	}
+    // Create the database owned by the user to avoid ALTER OWNER after creation
+    if _, err := adminDB.Exec(fmt.Sprintf("CREATE DATABASE %s OWNER %s", pq.QuoteIdentifier(dbName), pq.QuoteIdentifier(newUser))); err != nil {
+        return fmt.Errorf("could not create database: %w", err)
+    }
 
 	// Grant database-level privileges
 	if _, err := adminDB.Exec(fmt.Sprintf("GRANT ALL PRIVILEGES ON DATABASE %s TO %s", pq.QuoteIdentifier(dbName), pq.QuoteIdentifier(newUser))); err != nil {
