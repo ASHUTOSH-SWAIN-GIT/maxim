@@ -94,6 +94,40 @@ See the [Releases](https://github.com/ASHUTOSH-SWAIN-GIT/maxim/releases) page fo
 - PostgreSQL server running and accessible
 - Superuser credentials for database management operations (create/delete databases)
 
+### Creating a PostgreSQL Superuser
+
+If you don't already have a PostgreSQL superuser to use with Maxim, create one using one of the options below.
+
+Option A: Using psql
+
+```bash
+# 1) Switch to the postgres system user (Linux)
+sudo -u postgres psql
+
+# 2) Inside psql, create a login role with superuser privileges
+CREATE ROLE maxim_admin WITH LOGIN SUPERUSER PASSWORD 'your-strong-password';
+
+# 3) Verify
+\du
+
+# 4) Exit psql
+\q
+```
+
+Option B: Using createuser
+
+```bash
+# Linux/macOS
+sudo -u postgres createuser --superuser maxim_admin
+sudo -u postgres psql -c "ALTER USER maxim_admin WITH PASSWORD 'your-strong-password';"
+```
+
+Notes
+
+- Use a strong password and store it securely.
+- If connecting remotely, ensure `postgresql.conf` and `pg_hba.conf` allow your host/IP.
+- On managed services (RDS, Cloud SQL, Azure), use the platform-provided admin user instead of creating your own superuser.
+
 ## Quick Start
 
 ### 1. Launch Maxim
