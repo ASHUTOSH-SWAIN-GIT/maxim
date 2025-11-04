@@ -15,15 +15,42 @@ var connectCmd = &cobra.Command{
 	Short: "Connect to a database and save credentials",
 	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		result, err := tui.RunConnectForm()
+		// Show submenu for Local vs Docker
+		connectType, err := tui.RunConnectTypeMenu()
 		if err != nil {
-			fmt.Printf("Error running form: %v\n", err)
+			fmt.Printf("Error running connect type menu: %v\n", err)
 			os.Exit(1)
 		}
 
-		if result.Quitting {
+		if connectType == -1 {
 			fmt.Println("Connection cancelled.")
 			os.Exit(0)
+		}
+
+		var result tui.ConnectResult
+
+		if connectType == 0 {
+			// Local database connection
+			result, err = tui.RunConnectForm()
+			if err != nil {
+				fmt.Printf("Error running form: %v\n", err)
+				os.Exit(1)
+			}
+			if result.Quitting {
+				fmt.Println("Connection cancelled.")
+				os.Exit(0)
+			}
+		} else if connectType == 1 {
+			// Docker container connection
+			result, err = handleDockerContainerConnect()
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			if result.Quitting {
+				fmt.Println("Connection cancelled.")
+				os.Exit(0)
+			}
 		}
 
 		conn, err := db.ConnectAndVerify("psql", result.User, result.Password, "localhost", result.Port, result.DBName)

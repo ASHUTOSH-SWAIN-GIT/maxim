@@ -52,15 +52,42 @@ create new databases, and perform various database operations.`,
 
 		switch choice {
 		case 0:
-			// Connect flow - connect to a specific database
-			result, err := tui.RunConnectForm()
+			// Connect flow - show submenu for Local vs Docker
+			connectType, err := tui.RunConnectTypeMenu()
 			if err != nil {
-				fmt.Printf("Error running form: %v\n", err)
+				fmt.Printf("Error running connect type menu: %v\n", err)
 				os.Exit(1)
 			}
-			if result.Quitting {
+
+			if connectType == -1 {
 				fmt.Println("Connection cancelled.")
-				os.Exit(0)
+				return
+			}
+
+			var result tui.ConnectResult
+
+			if connectType == 0 {
+				// Local database connection
+				result, err = tui.RunConnectForm()
+				if err != nil {
+					fmt.Printf("Error running form: %v\n", err)
+					os.Exit(1)
+				}
+				if result.Quitting {
+					fmt.Println("Connection cancelled.")
+					os.Exit(0)
+				}
+			} else if connectType == 1 {
+				// Docker container connection
+				result, err = handleDockerContainerConnect()
+				if err != nil {
+					fmt.Printf("Error: %v\n", err)
+					os.Exit(1)
+				}
+				if result.Quitting {
+					fmt.Println("Connection cancelled.")
+					os.Exit(0)
+				}
 			}
 
 			conn, err := db.ConnectAndVerify("psql", result.User, result.Password, "localhost", result.Port, result.DBName)
@@ -276,6 +303,69 @@ func handleDeleteDatabase() {
 		os.Exit(1)
 	}
 	fmt.Printf("Success: database '%s' has been deleted.\n", selectedDB)
+}
+
+func handleDockerContainerConnect() (tui.ConnectResult, error) {
+	// Check if Docker is available
+	if err := docker.IsDockerAvailable(); err != nil {
+		return tui.ConnectResult{}, fmt.Errorf("Docker is not available. Please install Docker and ensure it's running")
+	}
+
+	// Get all Docker container databases
+	containerDBs, err := docker.GetAllContainerDatabases()
+	if err != nil {
+		return tui.ConnectResult{}, fmt.Errorf("failed to get Docker containers: %w", err)
+	}
+
+	if len(containerDBs) == 0 {
+		return tui.ConnectResult{}, fmt.Errorf("no Docker containers with PostgreSQL databases found")
+	}
+
+	// Create a list of container names for selection
+	containerNames := make([]string, len(containerDBs))
+	for i, containerDB := range containerDBs {
+		containerNames[i] = fmt.Sprintf("%s [%s] (Port: %s)", containerDB.ContainerName, containerDB.DatabaseName, containerDB.Port)
+	}
+
+	selectedContainer, err := tui.RunDBList(containerNames)
+	if err != nil {
+		return tui.ConnectResult{Quitting: true}, nil
+	}
+
+	// Extract container name from selection
+	containerName := strings.Split(selectedContainer, " ")[0]
+
+	// Find the container info
+	var selectedContainerInfo *docker.ContainerDBInfo
+	for _, containerDB := range containerDBs {
+		if containerDB.ContainerName == containerName {
+			selectedContainerInfo = &containerDB
+			break
+		}
+	}
+
+	if selectedContainerInfo == nil {
+		return tui.ConnectResult{}, fmt.Errorf("container not found")
+	}
+
+	// Get password from user
+	fmt.Println("\nEnter password for the container database:")
+	passwordForm, err := tui.RunPasswordForm()
+	if err != nil {
+		return tui.ConnectResult{Quitting: true}, nil
+	}
+	if passwordForm.Quitting {
+		return tui.ConnectResult{Quitting: true}, nil
+	}
+
+	return tui.ConnectResult{
+		DBType:   "psql",
+		Port:     selectedContainerInfo.Port,
+		User:     "postgres",
+		Password: passwordForm.Password,
+		DBName:   selectedContainerInfo.DatabaseName,
+		Quitting: false,
+	}, nil
 }
 
 func maskPassword(password string) string {
