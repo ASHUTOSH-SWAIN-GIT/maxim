@@ -8,43 +8,41 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type ConnectFormModel struct {
+type ContainerFormModel struct {
 	focusIndex int
 	Inputs     []textinput.Model
 	Quitting   bool
-	done       bool
 }
 
-type ConnectResult struct {
-	DBType   string
-	Port     string
-	User     string
-	Password string
-	DBName   string
-	Quitting bool
+type ContainerFormResult struct {
+	ContainerName string
+	DatabaseName  string
+	Port          string
+	Password      string
+	Quitting      bool
 }
 
-func RunConnectForm() (ConnectResult, error) {
-	m, err := tea.NewProgram(initialConnectFormModel()).Run()
+func RunContainerForm() (ContainerFormResult, error) {
+	m, err := tea.NewProgram(initialContainerFormModel()).Run()
 	if err != nil {
-		return ConnectResult{}, err
+		return ContainerFormResult{}, err
+	}
+	model := m.(ContainerFormModel)
+	if model.Quitting {
+		return ContainerFormResult{Quitting: true}, nil
 	}
 
-	model := m.(ConnectFormModel)
-	result := ConnectResult{
-		DBType:   "psql",
-		Port:     model.Inputs[0].Value(),
-		User:     model.Inputs[1].Value(),
-		Password: model.Inputs[2].Value(),
-		DBName:   model.Inputs[3].Value(),
-		Quitting: model.Quitting,
-	}
-
-	return result, nil
+	return ContainerFormResult{
+		ContainerName: model.Inputs[0].Value(),
+		DatabaseName:  model.Inputs[1].Value(),
+		Port:          model.Inputs[2].Value(),
+		Password:      model.Inputs[3].Value(),
+		Quitting:      false,
+	}, nil
 }
 
-func initialConnectFormModel() ConnectFormModel {
-	m := ConnectFormModel{
+func initialContainerFormModel() ContainerFormModel {
+	m := ContainerFormModel{
 		Inputs: make([]textinput.Model, 4),
 	}
 
@@ -52,31 +50,32 @@ func initialConnectFormModel() ConnectFormModel {
 	for i := range m.Inputs {
 		t = textinput.New()
 		t.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-		t.CharLimit = 32
 		t.Prompt = ""
 
 		switch i {
 		case 0:
 			t.Focus()
-			t.Placeholder = "5432"
+			t.Placeholder = "my-postgres-container"
 		case 1:
-			t.Placeholder = "postgres"
+			t.Placeholder = "mydb"
 		case 2:
+			t.Placeholder = "5432"
+			t.CharLimit = 5
+		case 3:
 			t.EchoMode = textinput.EchoPassword
 			t.EchoCharacter = '•'
-		case 3:
-			t.Placeholder = "mydb"
+			t.Placeholder = "password"
 		}
 		m.Inputs[i] = t
 	}
 	return m
 }
 
-func (m ConnectFormModel) Init() tea.Cmd {
+func (m ContainerFormModel) Init() tea.Cmd {
 	return textinput.Blink
 }
 
-func (m ConnectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m ContainerFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if msg, ok := msg.(tea.KeyMsg); ok {
 		switch msg.String() {
 		case "ctrl+c", "esc":
@@ -90,14 +89,13 @@ func (m ConnectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyEnter:
 			if m.focusIndex == len(m.Inputs)-1 {
-				m.done = true
 				return m, tea.Quit
 			}
 			m.nextInput()
-		case tea.KeyShiftTab, tea.KeyCtrlP:
-			m.prevInput()
 		case tea.KeyTab, tea.KeyCtrlN:
 			m.nextInput()
+		case tea.KeyShiftTab, tea.KeyCtrlP:
+			m.prevInput()
 		}
 	}
 
@@ -105,23 +103,31 @@ func (m ConnectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m ConnectFormModel) View() string {
-	if m.Quitting || m.done {
+func (m ContainerFormModel) View() string {
+	if m.Quitting {
 		return ""
 	}
-
 	var b strings.Builder
-	b.WriteString("Enter Database Credentials\n\n")
-	labels := []string{"Port:     ", "Username: ", "Password: ", "DB Name:  "}
+	b.WriteString("Spin up PostgreSQL in Docker Container\n\n")
+
+	labels := []string{
+		"Container Name: ",
+		"Database Name:  ",
+		"Port:           ",
+		"Password:       ",
+	}
+
 	for i := range m.Inputs {
 		b.WriteString(labels[i])
 		b.WriteString(m.Inputs[i].View())
 		b.WriteRune('\n')
 	}
+
+	b.WriteString("\n(press Enter to submit, Esc to cancel)")
 	return b.String()
 }
 
-func (m *ConnectFormModel) updateInputs(msg tea.Msg) tea.Cmd {
+func (m *ContainerFormModel) updateInputs(msg tea.Msg) tea.Cmd {
 	cmds := make([]tea.Cmd, len(m.Inputs))
 	for i := range m.Inputs {
 		m.Inputs[i], cmds[i] = m.Inputs[i].Update(msg)
@@ -129,13 +135,13 @@ func (m *ConnectFormModel) updateInputs(msg tea.Msg) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-func (m *ConnectFormModel) nextInput() {
+func (m *ContainerFormModel) nextInput() {
 	m.Inputs[m.focusIndex].Blur()
 	m.focusIndex = (m.focusIndex + 1) % len(m.Inputs)
 	m.Inputs[m.focusIndex].Focus()
 }
 
-func (m *ConnectFormModel) prevInput() {
+func (m *ContainerFormModel) prevInput() {
 	m.Inputs[m.focusIndex].Blur()
 	m.focusIndex--
 	if m.focusIndex < 0 {
@@ -143,3 +149,4 @@ func (m *ConnectFormModel) prevInput() {
 	}
 	m.Inputs[m.focusIndex].Focus()
 }
+
