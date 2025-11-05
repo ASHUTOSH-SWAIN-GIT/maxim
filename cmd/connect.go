@@ -15,6 +15,7 @@ var connectCmd = &cobra.Command{
 	Short: "Connect to a database and save credentials",
 	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Show connect form directly for local database
 		result, err := tui.RunConnectForm()
 		if err != nil {
 			fmt.Printf("Error running form: %v\n", err)

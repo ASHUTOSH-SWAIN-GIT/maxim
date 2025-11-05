@@ -37,21 +37,19 @@ func initialSQLEditorModel(conn *sql.DB, dbName string) sqlEditorModel {
 	ta.ShowLineNumbers = true
 	ta.Prompt = ""
 
-	vp := viewport.New(50, 15) // Start with a smaller height, will be adjusted by window size
-	vp.SetContent("SQL Editor - Database: " + dbName + "\n\n" +
-		"Instructions:\n" +
-		"• Type your SQL queries in the left panel\n" +
-		"• Press Ctrl+E to Run Current statement (at cursor)\n" +
-		"• Press Ctrl+A to Run All statements\n" +
-		"• Autocomplete suggestions appear in this panel\n" +
-		"• Press Tab to cycle through suggestions\n" +
-		"• Press Enter to select highlighted suggestion\n" +
-		"• Press Ctrl+R to clear results\n" +
-		"• Press Esc to quit\n\n" +
-		"Example queries:\n" +
-		"SELECT * FROM users;\n" +
-		"INSERT INTO users (name) VALUES ('John');\n" +
-		"UPDATE users SET name = 'Jane' WHERE id = 1;")
+    vp := viewport.New(50, 15) // Start with a smaller height, will be adjusted by window size
+    vp.SetContent("SQL Editor - Database: " + dbName + "\n\n" +
+        "Instructions:\n" +
+        "• Type your SQL queries in the left panel\n" +
+        "• Autocomplete suggestions appear in this panel\n" +
+        "• Press Tab to cycle through suggestions\n" +
+        "• Press Enter to select highlighted suggestion\n" +
+        "• Press Ctrl+R to clear results\n" +
+        "• Press Esc to quit\n\n" +
+        "Example queries:\n" +
+        "SELECT * FROM users;\n" +
+        "INSERT INTO users (name) VALUES ('John');\n" +
+        "UPDATE users SET name = 'Jane' WHERE id = 1;")
 
 	// Create query cache and cache columns
 	queryCache := NewQueryCache()
@@ -119,47 +117,6 @@ func (m sqlEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEsc:
 			m.quitting = true
 			return m, tea.Quit
-		case tea.KeyCtrlE:
-			// Run Current: execute the statement around the cursor (heuristic: caret at end if API not available)
-			content := m.textarea.Value()
-			current := getCurrentStatement(content)
-			if strings.TrimSpace(current) != "" {
-				m.executeQuery(current)
-			}
-			return m, nil
-		case tea.KeyCtrlA:
-			// Run All: execute all statements sequentially
-			content := m.textarea.Value()
-			stmts := splitSQLStatements(content)
-			var combined strings.Builder
-			for _, s := range stmts {
-				q := strings.TrimSpace(s)
-				if q == "" {
-					continue
-				}
-				// Execute each statement and append output; stop on first error
-				result := db.ExecuteQuery(m.db, q)
-				if result.Success {
-					if result.Data != "" {
-						combined.WriteString(result.Data)
-						if !strings.HasSuffix(result.Data, "\n") {
-							combined.WriteString("\n")
-						}
-					}
-				} else {
-					m.error = result.Error
-					formattedError := fmt.Sprintf("%s\n\nPress Ctrl+R to clear this error", result.Error)
-					m.viewport.SetContent(formattedError)
-					return m, nil
-				}
-			}
-			m.results = combined.String()
-			if m.results == "" {
-				m.results = "OK"
-			}
-			m.viewport.SetContent(m.results)
-			// Do not clear textarea on Run All
-			return m, nil
 		case tea.KeyCtrlR:
 			// Clear results
 			m.results = ""
@@ -210,17 +167,15 @@ func (m sqlEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selectedIndex = 0
 				m.justSelected = true
 				// Restore the right panel to show previous results or welcome message
-				if m.results != "" {
+                if m.results != "" {
 					m.viewport.SetContent(m.results)
 				} else if m.error != "" {
 					m.viewport.SetContent(m.error)
 				} else {
 					m.viewport.SetContent("SQL Editor - Database: " + m.dbName + "\n\n" +
 						"Instructions:\n" +
-						"• Type your SQL queries in the left panel\n" +
-						"• Press Ctrl+E to Run Current statement (at cursor)\n" +
-						"• Press Ctrl+A to Run All statements\n" +
-						"• Autocomplete suggestions appear in this panel\n" +
+                        "• Type your SQL queries in the left panel\n" +
+                        "• Autocomplete suggestions appear in this panel\n" +
 						"• Press Tab to cycle through suggestions\n" +
 						"• Press Enter to select highlighted suggestion\n" +
 						"• Press Ctrl+R to clear results\n" +
@@ -329,66 +284,11 @@ func (m *sqlEditorModel) executeQuery(query string) {
 }
 
 // splitSQLStatements splits SQL by semicolons while respecting simple single-quoted strings.
-func splitSQLStatements(input string) []string {
-	var stmts []string
-	var current strings.Builder
-	inSingle := false
-	for i := 0; i < len(input); i++ {
-		c := input[i]
-		if c == '\'' { // toggle single-quote mode, handle escaped '' inside strings
-			if inSingle {
-				// Lookahead for escaped single quote ''
-				if i+1 < len(input) && input[i+1] == '\'' {
-					current.WriteByte('\'')
-					i++
-					continue
-				}
-				inSingle = false
-			} else {
-				inSingle = true
-			}
-			current.WriteByte(c)
-			continue
-		}
-
-		if c == ';' && !inSingle {
-			stmts = append(stmts, current.String())
-			current.Reset()
-			continue
-		}
-
-		current.WriteByte(c)
-	}
-	if s := strings.TrimSpace(current.String()); s != "" {
-		stmts = append(stmts, s)
-	}
-	return stmts
-}
+// (removed) splitSQLStatements
 
 // getCurrentStatement returns the statement at the caret; heuristic: if caret API is not
 // available, assume caret is at end of content, and pick the last statement under that.
-func getCurrentStatement(content string) string {
-	trimmed := strings.TrimRight(content, "\t \n\r")
-	if trimmed == "" {
-		return ""
-	}
-	// Use the last statement by splitting from the end
-	// Find the index of the last semicolon before or at the end
-	lastSemi := strings.LastIndex(trimmed, ";")
-	if lastSemi == -1 {
-		return trimmed
-	}
-	// If the last char is semicolon, take the statement after the previous semicolon
-	if lastSemi == len(trimmed)-1 {
-		// Remove trailing semicolons and whitespace, then recompute
-		trimmed = strings.TrimRight(strings.TrimRight(trimmed, ";"), "\t \n\r")
-		if trimmed == "" {
-			return ""
-		}
-		lastSemi = strings.LastIndex(trimmed, ";")
-	}
-	return strings.TrimSpace(trimmed[lastSemi+1:])
-}
+// (removed) getCurrentStatement
 
 func (m sqlEditorModel) headerView() string {
 	// Return empty string to remove external header
