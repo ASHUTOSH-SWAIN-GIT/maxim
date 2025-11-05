@@ -57,18 +57,11 @@ func initialContainerFormModel() ContainerFormModel {
 		switch i {
 		case 0:
 			t.Focus()
-			t.Placeholder = "my-postgres-container"
-		case 1:
-			t.Placeholder = "mydb"
-		case 2:
-            t.Placeholder = "postgres"
         case 3:
-			t.Placeholder = "5432"
 			t.CharLimit = 5
         case 4:
 			t.EchoMode = textinput.EchoPassword
 			t.EchoCharacter = '•'
-			t.Placeholder = "password"
 		}
 		m.Inputs[i] = t
 	}

@@ -58,14 +58,9 @@ func initialConnectFormModel() ConnectFormModel {
 		switch i {
 		case 0:
 			t.Focus()
-			t.Placeholder = "5432"
-		case 1:
-			t.Placeholder = "postgres"
 		case 2:
 			t.EchoMode = textinput.EchoPassword
 			t.EchoCharacter = '•'
-		case 3:
-			t.Placeholder = "mydb"
 		}
 		m.Inputs[i] = t
 	}

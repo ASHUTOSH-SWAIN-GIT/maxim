@@ -69,9 +69,7 @@ func (m createTypeMenuModel) View() string {
 		}
 
 		choiceText := choice
-		if choice == "Local" {
-			choiceText += " (on existing PostgreSQL server)"
-		} else if choice == "Docker" {
+		if choice == "Docker" {
 			choiceText += " (in Docker container)"
 		}
 

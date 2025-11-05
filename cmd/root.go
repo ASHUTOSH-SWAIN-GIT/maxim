@@ -160,10 +160,31 @@ create new databases, and perform various database operations.`,
 			}
 			defer adminInfo.DB.Close()
 
+			// Get databases from PostgreSQL server
 			dbNames, err := db.ListDatabases(adminInfo.DB)
 			if err != nil {
 				fmt.Printf("Could not fetch database list: %v\n", err)
 				os.Exit(1)
+			}
+
+			// Get databases from Docker containers
+			containerDBs, err := docker.GetAllContainerDatabases()
+			if err == nil && len(containerDBs) > 0 {
+				// Add Docker container databases to the list with a marker
+				for _, containerDB := range containerDBs {
+					// Check if already in list (avoid duplicates)
+					found := false
+					for _, dbName := range dbNames {
+						if dbName == containerDB.DatabaseName {
+							found = true
+							break
+						}
+					}
+					if !found {
+						// Mark as Docker container
+						dbNames = append(dbNames, fmt.Sprintf("%s [Docker]", containerDB.DatabaseName))
+					}
+				}
 			}
 
 			if err := tui.RunDBListDisplay(dbNames); err != nil {
