@@ -22,6 +22,7 @@ type ContainerInfo struct {
 	DatabaseName  string
 	Port          string
 	Password      string
+    Username      string
 }
 
 // StartPostgreSQLContainer starts a PostgreSQL container with the given configuration
@@ -34,6 +35,7 @@ func StartPostgreSQLContainer(info ContainerInfo) error {
 		"-p", fmt.Sprintf("%s:5432", info.Port),
 		"-e", fmt.Sprintf("POSTGRES_PASSWORD=%s", info.Password),
 		"-e", fmt.Sprintf("POSTGRES_DB=%s", info.DatabaseName),
+        "-e", fmt.Sprintf("POSTGRES_USER=%s", info.Username),
 		"postgres:latest",
 	}
 

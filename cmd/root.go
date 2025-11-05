@@ -385,6 +385,10 @@ func handleContainerSpinUp() {
 		fmt.Println("Error: Database name is required")
 		os.Exit(1)
 	}
+    if formResult.Username == "" {
+        fmt.Println("Error: Username is required")
+        os.Exit(1)
+    }
 	if formResult.Port == "" {
 		fmt.Println("Error: Port is required")
 		os.Exit(1)
@@ -398,6 +402,7 @@ func handleContainerSpinUp() {
 	containerInfo := docker.ContainerInfo{
 		ContainerName: formResult.ContainerName,
 		DatabaseName:  formResult.DatabaseName,
+        Username:      formResult.Username,
 		Port:          formResult.Port,
 		Password:      formResult.Password,
 	}
@@ -421,16 +426,9 @@ func handleContainerSpinUp() {
 		}
 		os.Exit(1)
 	}
-	fmt.Println("✓ PostgreSQL is ready")
-
-	fmt.Printf("\n✓ Container created and PostgreSQL is ready!\n")
-	fmt.Printf("\nConnection details:\n")
-	fmt.Printf("  Host: localhost\n")
-	fmt.Printf("  Port: %s\n", containerInfo.Port)
-	fmt.Printf("  Username: postgres\n")
-	fmt.Printf("  Password: %s\n", maskPassword(containerInfo.Password))
-	fmt.Printf("  Database: %s\n", containerInfo.DatabaseName)
-	fmt.Printf("\nYou can now connect to this database using the 'Connect to a DB' option.\n")
+    fmt.Println("✓ PostgreSQL is ready")
+    fmt.Printf("\nSuccess: Docker PostgreSQL container '%s' created.\n", containerInfo.ContainerName)
+    fmt.Println("You can now connect via 'Connect to a DB'.")
 }
 
 func init() {
