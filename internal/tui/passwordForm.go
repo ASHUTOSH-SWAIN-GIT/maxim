@@ -7,7 +7,7 @@ import (
 )
 
 type PasswordFormModel struct {
-	Input   textinput.Model
+	Input    textinput.Model
 	Quitting bool
 	done     bool
 }
@@ -75,4 +75,3 @@ func (m PasswordFormModel) View() string {
 	}
 	return m.Input.View() + "\n\n(press Enter to submit, Esc to cancel)"
 }
-

@@ -52,42 +52,15 @@ create new databases, and perform various database operations.`,
 
 		switch choice {
 		case 0:
-			// Connect flow - show submenu for Local vs Docker
-			connectType, err := tui.RunConnectTypeMenu()
+			// Connect to local DB - show connect form directly
+			result, err := tui.RunConnectForm()
 			if err != nil {
-				fmt.Printf("Error running connect type menu: %v\n", err)
+				fmt.Printf("Error running form: %v\n", err)
 				os.Exit(1)
 			}
-
-			if connectType == -1 {
+			if result.Quitting {
 				fmt.Println("Connection cancelled.")
-				return
-			}
-
-			var result tui.ConnectResult
-
-			if connectType == 0 {
-				// Local database connection
-				result, err = tui.RunConnectForm()
-				if err != nil {
-					fmt.Printf("Error running form: %v\n", err)
-					os.Exit(1)
-				}
-				if result.Quitting {
-					fmt.Println("Connection cancelled.")
-					os.Exit(0)
-				}
-			} else if connectType == 1 {
-				// Docker container connection
-				result, err = handleDockerContainerConnect()
-				if err != nil {
-					fmt.Printf("Error: %v\n", err)
-					os.Exit(1)
-				}
-				if result.Quitting {
-					fmt.Println("Connection cancelled.")
-					os.Exit(0)
-				}
+				os.Exit(0)
 			}
 
 			conn, err := db.ConnectAndVerify("psql", result.User, result.Password, "localhost", result.Port, result.DBName)
@@ -99,18 +72,18 @@ create new databases, and perform various database operations.`,
 
 			// Show database operations menu
 			for {
-				choice, err := tui.RunDBOperationsMenu(result.DBName)
+				opsChoice, err := tui.RunDBOperationsMenu(result.DBName)
 				if err != nil {
 					fmt.Printf("Error running operations menu: %v\n", err)
 					break
 				}
 
 				// Check if user pressed 'q' to quit
-				if choice == -1 {
+				if opsChoice == -1 {
 					break
 				}
 
-				switch choice {
+				switch opsChoice {
 				case 0: // Show table data
 					tables, err := db.GetTables(conn)
 					if err != nil {
