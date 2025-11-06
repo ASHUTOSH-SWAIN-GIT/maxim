@@ -8,7 +8,7 @@
 
 ## Features
 
-- 🚀 **Fast & Modern TUI** - Beautiful, keyboard-driven interface built with [Bubble Tea](https://github.com/charmbracelet/bubbletea)
+-  **Fast & Modern TUI** - Beautiful, keyboard-driven interface built with [Bubble Tea](https://github.com/charmbracelet/bubbletea)
 -  **Database Management** - Create, list, and delete PostgreSQL databases
 -  **Docker DB Creation** - Spin up a PostgreSQL database inside a Docker container from the UI
 -  **Table Browser** - Browse tables and view data with pagination (100 rows per page)
