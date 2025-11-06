@@ -2,7 +2,7 @@
 
 **Maxim** is a fast, modern terminal user interface (TUI) for working with PostgreSQL databases. Browse tables, view data, and run SQL queries with intelligent autocomplete—all without leaving your terminal.
 
-![Maxim](https://img.shields.io/badge/version-1.0.0-blue)
+![Maxim](https://img.shields.io/badge/version-1.0.2-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Go](https://img.shields.io/badge/go-1.21+-00ADD8)
 
@@ -10,8 +10,9 @@
 
 - 🚀 **Fast & Modern TUI** - Beautiful, keyboard-driven interface built with [Bubble Tea](https://github.com/charmbracelet/bubbletea)
 -  **Database Management** - Create, list, and delete PostgreSQL databases
+-  **Docker DB Creation** - Spin up a PostgreSQL database inside a Docker container from the UI
 -  **Table Browser** - Browse tables and view data with pagination (100 rows per page)
--  **SQL Editor** - Write and execute SQL queries with syntax highlighting
+-  **SQL Editor** - Write SQL queries with syntax-aware autocomplete
 -  **Intelligent Autocomplete** - Smart suggestions for SQL keywords, table names, and column names
 -  **Keyboard-Driven** - Full keyboard navigation—no mouse required
 -  **Connection Management** - Save and reuse database connections securely
@@ -91,8 +92,9 @@ See the [Releases](https://github.com/ASHUTOSH-SWAIN-GIT/maxim/releases) page fo
 
 ## Requirements
 
-- PostgreSQL server running and accessible
-- Superuser credentials for database management operations (create/delete databases)
+- PostgreSQL server running and accessible (for local/remote DBs)
+- Superuser credentials for database management operations (create/delete databases) on local servers
+- For Docker-based databases: Docker installed and running
 
 ### Creating a PostgreSQL Superuser
 
@@ -165,6 +167,55 @@ After connecting, you'll see the database operations menu:
 - **Show table data** - Browse tables and view data with pagination
 - **Editor** - Open the SQL editor
 
+## Docker Database (Container) Support
+
+Maxim can create PostgreSQL databases inside Docker containers.
+
+### Prerequisites
+- Docker installed and running
+  - Verify: `docker version`
+- Permissions to run Docker (on Linux, add your user to the `docker` group or use `sudo`)
+- An available host port for PostgreSQL (default container port 5432; you choose the host port)
+
+### Create a Docker Database
+1. Open Maxim: `maxim start`
+2. Choose: **Create a new DB**
+3. Select: **Docker**
+4. Enter the following:
+   - Container name
+   - Database name
+   - Username
+   - Port (host port to map to container `5432`)
+   - Password
+5. Maxim will start a container from `postgres:latest`, wait until it is ready, and show a success message with connection details (password is not displayed).
+6. No auto-connect occurs; use the normal connect flow below.
+
+### Connect to a Docker Database
+Use the regular connect flow (no separate option needed):
+- Host: `localhost`
+- Port: the host port you entered during creation
+- Username: the username you entered during creation
+- Database: the database name you entered during creation
+- Password: the password you entered during creation
+
+### List and Delete
+- **List all DBs** includes Docker databases, marked with `[Docker]`.
+- **Delete a DB** will stop and remove the Docker container when a Docker DB is selected.
+
+### Notes
+- Passwords are never stored; they are masked in any on-screen messages.
+- PostgreSQL version is `latest` by default.
+
+### Docker Troubleshooting
+- "docker: command not found": Install Docker and ensure it’s in `PATH`.
+- "permission denied": On Linux, add your user to the `docker` group or run with `sudo`.
+- "port already in use": Choose a different host port (e.g., 5433, 5434...).
+- Container not ready: `docker logs <container_name>` to inspect startup.
+- Manual cleanup:
+  ```bash
+  docker stop <container_name> && docker rm <container_name>
+  ```
+
 ## Usage Guide
 
 ### Main Commands
@@ -173,8 +224,8 @@ After connecting, you'll see the database operations menu:
 maxim start      # Launch interactive TUI interface
 maxim connect    # Connect to a database
 maxim create     # Create a new database and user
-maxim list       # List all databases on the server
-maxim delete     # Delete a database
+maxim list       # List all databases on the server (includes Docker)
+maxim delete     # Delete a database (kills Docker container if applicable)
 maxim --version  # Show version information
 maxim --help     # Show help
 ```
@@ -184,10 +235,9 @@ maxim --help     # Show help
 The SQL Editor provides a split-panel interface:
 
 - **Left Panel**: Type your SQL queries
-- **Right Panel**: View results or autocomplete suggestions
+- **Right Panel**: View autocomplete suggestions and results
 
 **Keyboard Shortcuts:**
-- `Ctrl+E` - Execute the current SQL query
 - `Ctrl+R` - Clear results
 - `Tab` - Cycle through autocomplete suggestions
 - `Enter` - Select highlighted suggestion
@@ -236,7 +286,7 @@ maxim create
 
 ```bash
 maxim list
-# Shows all databases on the server
+# Shows all databases on the server (includes [Docker] entries)
 # Press Esc to return to menu
 ```
 
@@ -244,10 +294,8 @@ maxim list
 
 ```bash
 maxim connect
-# After connecting:
-# 1. Select "Editor"
-# 2. Type: SELECT * FROM users;
-# 3. Press Ctrl+E to execute
+# Enter host, port, username, password, and database name
+# Open "Editor" to type queries with autocomplete
 ```
 
 ## Troubleshooting
@@ -255,7 +303,7 @@ maxim connect
 ### Connection Failed
 
 - Verify PostgreSQL is running: `sudo systemctl status postgresql` (Linux)
-- Check if the port is correct (default: 5432)
+- Check if the port is correct (default: 5432, or your Docker host port)
 - Ensure your user has the necessary permissions
 - Verify network connectivity to the database server
 
