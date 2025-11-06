@@ -238,6 +238,7 @@ The SQL Editor provides a split-panel interface:
 - **Right Panel**: View autocomplete suggestions and results
 
 **Keyboard Shortcuts:**
+- `Ctrl+A` - Execute all queries
 - `Ctrl+R` - Clear results
 - `Tab` - Cycle through autocomplete suggestions
 - `Enter` - Select highlighted suggestion
