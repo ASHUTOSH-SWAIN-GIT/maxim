@@ -5,6 +5,7 @@
 ![Maxim](https://img.shields.io/badge/version-1.0.2-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Go](https://img.shields.io/badge/go-1.21+-00ADD8)
+[![CI](https://github.com/ASHUTOSH-SWAIN-GIT/maxim/actions/workflows/ci.yml/badge.svg)](https://github.com/ASHUTOSH-SWAIN-GIT/maxim/actions/workflows/ci.yml)
 
 ## Features
 
@@ -324,6 +325,32 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
+### Development checks
+
+Run the same checks used by CI before opening a pull request:
+
+```bash
+make ci
+```
+
+This verifies module files and formatting, runs `go vet`, executes tests with
+race detection, and builds the Maxim binary. Individual targets such as
+`make test`, `make test-integration-cli`, `make fmt`, `make coverage`, and
+`make build` are also available. The coverage target enforces the repository's
+current 15% minimum and should be raised as coverage grows.
+
+`make test-integration-db` automatically starts and removes a disposable
+PostgreSQL 17 Docker container. To use an existing disposable database instead,
+set all of `MAXIM_TEST_DB_HOST`, `MAXIM_TEST_DB_PORT`, `MAXIM_TEST_DB_USER`,
+`MAXIM_TEST_DB_PASSWORD`, and `MAXIM_TEST_DB_NAME`. Docker lifecycle tests
+require a running Docker daemon and can be run with
+`make test-integration-docker`.
+
+CI additionally tests Maxim on Linux, macOS, and Windows, scans for known Go
+vulnerabilities, exercises Maxim against a real PostgreSQL service and Docker
+container, and validates the GoReleaser configuration. Version tags in the form
+`v*` trigger the release workflow.
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
@@ -340,4 +367,3 @@ For issues, questions, or feature requests, please open an issue on [GitHub](htt
 ---
 
 **Enjoy working with your databases! 🚀**
-

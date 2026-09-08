@@ -94,4 +94,3 @@ func RunConnectTypeMenu() (int, error) {
 
 	return model.cursor, nil
 }
-

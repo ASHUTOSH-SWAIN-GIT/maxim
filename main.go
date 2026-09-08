@@ -19,6 +19,6 @@ func main() {
 		fmt.Printf("maxim version %s (commit: %s, built: %s)\n", version, commit, date)
 		os.Exit(0)
 	}
-	
+
 	cmd.Execute()
 }

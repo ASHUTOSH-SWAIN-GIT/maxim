@@ -17,7 +17,7 @@ type ContainerFormModel struct {
 type ContainerFormResult struct {
 	ContainerName string
 	DatabaseName  string
-    Username      string
+	Username      string
 	Port          string
 	Password      string
 	Quitting      bool
@@ -35,21 +35,21 @@ func RunContainerForm() (ContainerFormResult, error) {
 
 	return ContainerFormResult{
 		ContainerName: model.Inputs[0].Value(),
-        DatabaseName:  model.Inputs[1].Value(),
-        Username:      model.Inputs[2].Value(),
-        Port:          model.Inputs[3].Value(),
-        Password:      model.Inputs[4].Value(),
+		DatabaseName:  model.Inputs[1].Value(),
+		Username:      model.Inputs[2].Value(),
+		Port:          model.Inputs[3].Value(),
+		Password:      model.Inputs[4].Value(),
 		Quitting:      false,
 	}, nil
 }
 
 func initialContainerFormModel() ContainerFormModel {
 	m := ContainerFormModel{
-        Inputs: make([]textinput.Model, 5),
+		Inputs: make([]textinput.Model, 5),
 	}
 
 	var t textinput.Model
-    for i := range m.Inputs {
+	for i := range m.Inputs {
 		t = textinput.New()
 		t.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 		t.Prompt = ""
@@ -57,9 +57,9 @@ func initialContainerFormModel() ContainerFormModel {
 		switch i {
 		case 0:
 			t.Focus()
-        case 3:
+		case 3:
 			t.CharLimit = 5
-        case 4:
+		case 4:
 			t.EchoMode = textinput.EchoPassword
 			t.EchoCharacter = '•'
 		}
@@ -110,9 +110,9 @@ func (m ContainerFormModel) View() string {
 	labels := []string{
 		"Container Name: ",
 		"Database Name:  ",
-        "Username:       ",
-        "Port:           ",
-        "Password:       ",
+		"Username:       ",
+		"Port:           ",
+		"Password:       ",
 	}
 
 	for i := range m.Inputs {
@@ -147,4 +147,3 @@ func (m *ContainerFormModel) prevInput() {
 	}
 	m.Inputs[m.focusIndex].Focus()
 }
-

@@ -37,20 +37,20 @@ func initialSQLEditorModel(conn *sql.DB, dbName string) sqlEditorModel {
 	ta.ShowLineNumbers = true
 	ta.Prompt = ""
 
-    vp := viewport.New(50, 15) // Start with a smaller height, will be adjusted by window size
-    vp.SetContent("SQL Editor - Database: " + dbName + "\n\n" +
-        "Instructions:\n" +
-        "• Type your SQL queries in the left panel\n" +
-        "• Autocomplete suggestions appear in this panel\n" +
-        "• Press Tab to cycle through suggestions\n" +
-        "• Press Enter to select highlighted suggestion\n" +
-        "• Press Ctrl+A to run all queries\n" +
-        "• Press Ctrl+R to clear results\n" +
-        "• Press Esc to quit\n\n" +
-        "Example queries:\n" +
-        "SELECT * FROM users;\n" +
-        "INSERT INTO users (name) VALUES ('John');\n" +
-        "UPDATE users SET name = 'Jane' WHERE id = 1;")
+	vp := viewport.New(50, 15) // Start with a smaller height, will be adjusted by window size
+	vp.SetContent("SQL Editor - Database: " + dbName + "\n\n" +
+		"Instructions:\n" +
+		"• Type your SQL queries in the left panel\n" +
+		"• Autocomplete suggestions appear in this panel\n" +
+		"• Press Tab to cycle through suggestions\n" +
+		"• Press Enter to select highlighted suggestion\n" +
+		"• Press Ctrl+A to run all queries\n" +
+		"• Press Ctrl+R to clear results\n" +
+		"• Press Esc to quit\n\n" +
+		"Example queries:\n" +
+		"SELECT * FROM users;\n" +
+		"INSERT INTO users (name) VALUES ('John');\n" +
+		"UPDATE users SET name = 'Jane' WHERE id = 1;")
 
 	// Create query cache and cache columns
 	queryCache := NewQueryCache()
@@ -118,52 +118,52 @@ func (m sqlEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEsc:
 			m.quitting = true
 			return m, tea.Quit
-        case tea.KeyCtrlR:
+		case tea.KeyCtrlR:
 			// Clear results
 			m.results = ""
 			m.error = ""
 			m.viewport.SetContent("Results cleared.\n\n" +
-                "Ready for a new query. Type your SQL in the left panel and press Ctrl+A to run all.")
+				"Ready for a new query. Type your SQL in the left panel and press Ctrl+A to run all.")
 			return m, nil
-        case tea.KeyCtrlA:
-            // Execute all statements in the textarea
-            content := m.textarea.Value()
-            statements := splitSQLStatements(content)
-            var combinedResults strings.Builder
-            var hadError bool
-            for _, stmt := range statements {
-                trimmed := strings.TrimSpace(stmt)
-                if trimmed == "" {
-                    continue
-                }
-                res := db.ExecuteQuery(m.db, trimmed)
-                if res.Success {
-                    if combinedResults.Len() > 0 {
-                        combinedResults.WriteString("\n\n")
-                    }
-                    combinedResults.WriteString(res.Data)
-                } else {
-                    hadError = true
-                    if combinedResults.Len() > 0 {
-                        combinedResults.WriteString("\n\n")
-                    }
-                    combinedResults.WriteString(res.Error)
-                }
-            }
-            if combinedResults.Len() == 0 {
-                m.results = "No statements to execute."
-            } else {
-                m.results = combinedResults.String()
-            }
-            if hadError {
-                m.error = m.results
-            } else {
-                m.error = ""
-            }
-            m.viewport.SetContent(m.results)
-            // Clear the textarea after execution
-            m.textarea.SetValue("")
-            return m, nil
+		case tea.KeyCtrlA:
+			// Execute all statements in the textarea
+			content := m.textarea.Value()
+			statements := splitSQLStatements(content)
+			var combinedResults strings.Builder
+			var hadError bool
+			for _, stmt := range statements {
+				trimmed := strings.TrimSpace(stmt)
+				if trimmed == "" {
+					continue
+				}
+				res := db.ExecuteQuery(m.db, trimmed)
+				if res.Success {
+					if combinedResults.Len() > 0 {
+						combinedResults.WriteString("\n\n")
+					}
+					combinedResults.WriteString(res.Data)
+				} else {
+					hadError = true
+					if combinedResults.Len() > 0 {
+						combinedResults.WriteString("\n\n")
+					}
+					combinedResults.WriteString(res.Error)
+				}
+			}
+			if combinedResults.Len() == 0 {
+				m.results = "No statements to execute."
+			} else {
+				m.results = combinedResults.String()
+			}
+			if hadError {
+				m.error = m.results
+			} else {
+				m.error = ""
+			}
+			m.viewport.SetContent(m.results)
+			// Clear the textarea after execution
+			m.textarea.SetValue("")
+			return m, nil
 		case tea.KeyTab:
 			// Cycle through suggestions
 			if m.showSuggestions && len(m.suggestions) > 0 {
@@ -207,18 +207,18 @@ func (m sqlEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selectedIndex = 0
 				m.justSelected = true
 				// Restore the right panel to show previous results or welcome message
-                if m.results != "" {
+				if m.results != "" {
 					m.viewport.SetContent(m.results)
 				} else if m.error != "" {
 					m.viewport.SetContent(m.error)
 				} else {
-                    m.viewport.SetContent("SQL Editor - Database: " + m.dbName + "\n\n" +
+					m.viewport.SetContent("SQL Editor - Database: " + m.dbName + "\n\n" +
 						"Instructions:\n" +
-                        "• Type your SQL queries in the left panel\n" +
-                        "• Autocomplete suggestions appear in this panel\n" +
+						"• Type your SQL queries in the left panel\n" +
+						"• Autocomplete suggestions appear in this panel\n" +
 						"• Press Tab to cycle through suggestions\n" +
 						"• Press Enter to select highlighted suggestion\n" +
-                        "• Press Ctrl+A to run all queries\n" +
+						"• Press Ctrl+A to run all queries\n" +
 						"• Press Ctrl+R to clear results\n" +
 						"• Press Esc to quit\n\n" +
 						"Example queries:\n" +
@@ -327,30 +327,30 @@ func (m *sqlEditorModel) executeQuery(query string) {
 // splitSQLStatements splits SQL text into statements by semicolons while
 // respecting simple single-quoted strings (no escape handling for quotes inside).
 func splitSQLStatements(input string) []string {
-    var stmts []string
-    var current strings.Builder
-    inSingleQuote := false
+	var stmts []string
+	var current strings.Builder
+	inSingleQuote := false
 
-    for _, r := range input {
-        switch r {
-        case '\'':
-            inSingleQuote = !inSingleQuote
-            current.WriteRune(r)
-        case ';':
-            if inSingleQuote {
-                current.WriteRune(r)
-            } else {
-                stmts = append(stmts, current.String())
-                current.Reset()
-            }
-        default:
-            current.WriteRune(r)
-        }
-    }
-    if s := strings.TrimSpace(current.String()); s != "" {
-        stmts = append(stmts, s)
-    }
-    return stmts
+	for _, r := range input {
+		switch r {
+		case '\'':
+			inSingleQuote = !inSingleQuote
+			current.WriteRune(r)
+		case ';':
+			if inSingleQuote {
+				current.WriteRune(r)
+			} else {
+				stmts = append(stmts, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteRune(r)
+		}
+	}
+	if s := strings.TrimSpace(current.String()); s != "" {
+		stmts = append(stmts, s)
+	}
+	return stmts
 }
 
 // getCurrentStatement returns the statement at the caret; heuristic: if caret API is not

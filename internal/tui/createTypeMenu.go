@@ -94,4 +94,3 @@ func RunCreateTypeMenu() (int, error) {
 
 	return model.cursor, nil
 }
-
