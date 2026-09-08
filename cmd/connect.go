@@ -27,7 +27,10 @@ var connectCmd = &cobra.Command{
 			os.Exit(0)
 		}
 
-		conn, err := db.ConnectAndVerify("psql", result.User, result.Password, "localhost", result.Port, result.DBName)
+		conn, err := db.ConnectPostgres(db.ConnectionOptions{
+			User: result.User, Password: result.Password, Host: result.Host,
+			Port: result.Port, Database: result.DBName, SSLMode: result.SSLMode,
+		})
 		if err != nil {
 			fmt.Printf("\n Connection failed: %v\n", err)
 			os.Exit(1)
@@ -36,17 +39,7 @@ var connectCmd = &cobra.Command{
 
 		fmt.Println("\n Connected successfully!")
 
-		detailsToSave := config.ConnectionDetails{
-			Host:   "localhost",
-			Port:   result.Port,
-			User:   result.User,
-			DBName: result.DBName,
-		}
-
-		// Create a connection name based on the database name
-		connectionName := fmt.Sprintf("%s@%s:%s", result.User, "localhost", result.Port)
-
-		if err := config.SaveDatabaseConnection(connectionName, detailsToSave, result.Password); err != nil {
+		if err := saveConnectionProfile(result); err != nil {
 			fmt.Printf("\n Failed to save credentials: %v\n", err)
 			os.Exit(1)
 		}
@@ -89,4 +82,13 @@ var connectCmd = &cobra.Command{
 			}
 		}
 	},
+}
+
+func saveConnectionProfile(result tui.ConnectResult) error {
+	details := config.ConnectionDetails{
+		Host: result.Host, Port: result.Port, User: result.User,
+		DBName: result.DBName, SSLMode: result.SSLMode,
+	}
+	name := fmt.Sprintf("%s@%s:%s/%s", result.User, result.Host, result.Port, result.DBName)
+	return config.SaveDatabaseConnection(name, details, result.Password)
 }

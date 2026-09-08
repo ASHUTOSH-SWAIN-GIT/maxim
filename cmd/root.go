@@ -63,12 +63,18 @@ create new databases, and perform various database operations.`,
 				os.Exit(0)
 			}
 
-			conn, err := db.ConnectAndVerify("psql", result.User, result.Password, "localhost", result.Port, result.DBName)
+			conn, err := db.ConnectPostgres(db.ConnectionOptions{
+				User: result.User, Password: result.Password, Host: result.Host,
+				Port: result.Port, Database: result.DBName, SSLMode: result.SSLMode,
+			})
 			if err != nil {
 				fmt.Printf(" Connection failed: %v\n", err)
 				os.Exit(1)
 			}
 			defer conn.Close()
+			if err := saveConnectionProfile(result); err != nil {
+				fmt.Printf("Warning: could not save connection: %v\n", err)
+			}
 
 			// Show database operations menu
 			for {
@@ -354,10 +360,12 @@ func handleDockerContainerConnect() (tui.ConnectResult, error) {
 
 	return tui.ConnectResult{
 		DBType:   "psql",
+		Host:     "localhost",
 		Port:     selectedContainerInfo.Port,
 		User:     "postgres",
 		Password: passwordForm.Password,
 		DBName:   selectedContainerInfo.DatabaseName,
+		SSLMode:  "disable",
 		Quitting: false,
 	}, nil
 }
@@ -406,10 +414,10 @@ func handleContainerSpinUp() {
 		fmt.Println("Error: Database name is required")
 		os.Exit(1)
 	}
-    if formResult.Username == "" {
-        fmt.Println("Error: Username is required")
-        os.Exit(1)
-    }
+	if formResult.Username == "" {
+		fmt.Println("Error: Username is required")
+		os.Exit(1)
+	}
 	if formResult.Port == "" {
 		fmt.Println("Error: Port is required")
 		os.Exit(1)
@@ -423,7 +431,7 @@ func handleContainerSpinUp() {
 	containerInfo := docker.ContainerInfo{
 		ContainerName: formResult.ContainerName,
 		DatabaseName:  formResult.DatabaseName,
-        Username:      formResult.Username,
+		Username:      formResult.Username,
 		Port:          formResult.Port,
 		Password:      formResult.Password,
 	}
@@ -447,9 +455,9 @@ func handleContainerSpinUp() {
 		}
 		os.Exit(1)
 	}
-    fmt.Println("✓ PostgreSQL is ready")
-    fmt.Printf("\nSuccess: Docker PostgreSQL container '%s' created.\n", containerInfo.ContainerName)
-    fmt.Println("You can now connect via 'Connect to a DB'.")
+	fmt.Println("✓ PostgreSQL is ready")
+	fmt.Printf("\nSuccess: Docker PostgreSQL container '%s' created.\n", containerInfo.ContainerName)
+	fmt.Println("You can now connect via 'Connect to a DB'.")
 }
 
 func init() {

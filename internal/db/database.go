@@ -3,58 +3,101 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"net"
+	"net/url"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/lib/pq"
 )
 
-func ConnectAndVerify(dbType, user, password, host, port, dbname string) (*sql.DB, error) {
-	var dsn string
-	driverName := dbType
+type ConnectionOptions struct {
+	User     string
+	Password string
+	Host     string
+	Port     string
+	Database string
+	SSLMode  string
+}
 
-	switch dbType {
-	case "psql":
-		driverName = "postgres"
-		dsn = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbname)
-	default:
+var supportedSSLModes = map[string]bool{
+	"disable":     true,
+	"allow":       true,
+	"prefer":      true,
+	"require":     true,
+	"verify-ca":   true,
+	"verify-full": true,
+}
+
+func ConnectAndVerify(dbType, user, password, host, port, dbname string) (*sql.DB, error) {
+	if dbType != "psql" {
 		return nil, fmt.Errorf("unsupported database type: %s", dbType)
 	}
+	return ConnectPostgres(ConnectionOptions{
+		User: user, Password: password, Host: host, Port: port,
+		Database: dbname, SSLMode: "disable",
+	})
+}
 
-	db, err := sql.Open(driverName, dsn)
+func ConnectPostgres(options ConnectionOptions) (*sql.DB, error) {
+	dsn, err := postgresDSN(options)
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database connection: %w", err)
 	}
 
 	if err = db.Ping(); err != nil {
 		db.Close()
-		// Parse PostgreSQL error to provide simplified messages
+		// Parse the most common PostgreSQL errors while preserving useful detail
+		// for TLS, DNS, and other connection failures.
 		if pqErr, ok := err.(*pq.Error); ok {
 			switch pqErr.Code {
 			case "28P01": // Invalid password
-				return nil, fmt.Errorf("invalid db credentials")
+				return nil, fmt.Errorf("invalid database credentials")
 			case "3D000": // Invalid database name
-				return nil, fmt.Errorf("database '%s' does not exist", dbname)
-			case "08006": // Connection failure
-				return nil, fmt.Errorf("invalid port")
-			case "08001": // SQL client unable to establish SQL connection
-				return nil, fmt.Errorf("invalid port")
-			case "08003": // Connection does not exist
-				return nil, fmt.Errorf("invalid port")
+				return nil, fmt.Errorf("database '%s' does not exist", options.Database)
 			default:
-				return nil, fmt.Errorf("invalid port")
+				return nil, fmt.Errorf("PostgreSQL connection failed: %s", pqErr.Message)
 			}
 		}
-		// Check for connection refused errors (wrong port/host)
-		if strings.Contains(err.Error(), "connection refused") ||
-			strings.Contains(err.Error(), "connect: connection refused") ||
-			strings.Contains(err.Error(), "dial tcp") {
-			return nil, fmt.Errorf("invalid port")
-		}
-		return nil, fmt.Errorf("wrong port")
+		return nil, fmt.Errorf("could not connect to %s:%s: %w", options.Host, options.Port, err)
 	}
 
 	return db, nil
+}
+
+func postgresDSN(options ConnectionOptions) (string, error) {
+	options.Host = strings.TrimSpace(options.Host)
+	options.Port = strings.TrimSpace(options.Port)
+	options.SSLMode = strings.ToLower(strings.TrimSpace(options.SSLMode))
+	if options.Host == "" {
+		return "", fmt.Errorf("host is required")
+	}
+	if options.Port == "" {
+		return "", fmt.Errorf("port is required")
+	}
+	if options.SSLMode == "" {
+		options.SSLMode = "prefer"
+	}
+	if !supportedSSLModes[options.SSLMode] {
+		return "", fmt.Errorf("unsupported SSL mode: %s", options.SSLMode)
+	}
+
+	connectionURL := &url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(options.User, options.Password),
+		Host:   net.JoinHostPort(options.Host, options.Port),
+		Path:   options.Database,
+	}
+	query := connectionURL.Query()
+	query.Set("sslmode", options.SSLMode)
+	query.Set("connect_timeout", "10")
+	connectionURL.RawQuery = query.Encode()
+	return connectionURL.String(), nil
 }
 
 func ListDatabases(db *sql.DB) ([]string, error) {

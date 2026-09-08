@@ -17,10 +17,12 @@ type ConnectFormModel struct {
 
 type ConnectResult struct {
 	DBType   string
+	Host     string
 	Port     string
 	User     string
 	Password string
 	DBName   string
+	SSLMode  string
 	Quitting bool
 }
 
@@ -33,10 +35,12 @@ func RunConnectForm() (ConnectResult, error) {
 	model := m.(ConnectFormModel)
 	result := ConnectResult{
 		DBType:   "psql",
-		Port:     model.Inputs[0].Value(),
-		User:     model.Inputs[1].Value(),
-		Password: model.Inputs[2].Value(),
-		DBName:   model.Inputs[3].Value(),
+		Host:     strings.TrimSpace(model.Inputs[0].Value()),
+		Port:     strings.TrimSpace(model.Inputs[1].Value()),
+		User:     strings.TrimSpace(model.Inputs[2].Value()),
+		Password: model.Inputs[3].Value(),
+		DBName:   strings.TrimSpace(model.Inputs[4].Value()),
+		SSLMode:  strings.TrimSpace(model.Inputs[5].Value()),
 		Quitting: model.Quitting,
 	}
 
@@ -45,22 +49,27 @@ func RunConnectForm() (ConnectResult, error) {
 
 func initialConnectFormModel() ConnectFormModel {
 	m := ConnectFormModel{
-		Inputs: make([]textinput.Model, 4),
+		Inputs: make([]textinput.Model, 6),
 	}
 
 	var t textinput.Model
 	for i := range m.Inputs {
 		t = textinput.New()
 		t.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-		t.CharLimit = 32
+		t.CharLimit = 255
 		t.Prompt = ""
 
 		switch i {
 		case 0:
+			t.SetValue("localhost")
 			t.Focus()
-		case 2:
+		case 1:
+			t.SetValue("5432")
+		case 3:
 			t.EchoMode = textinput.EchoPassword
 			t.EchoCharacter = '•'
+		case 5:
+			t.SetValue("prefer")
 		}
 		m.Inputs[i] = t
 	}
@@ -107,7 +116,7 @@ func (m ConnectFormModel) View() string {
 
 	var b strings.Builder
 	b.WriteString("Enter Database Credentials\n\n")
-	labels := []string{"Port:     ", "Username: ", "Password: ", "DB Name:  "}
+	labels := []string{"Host:     ", "Port:     ", "Username: ", "Password: ", "DB Name:  ", "SSL Mode: "}
 	for i := range m.Inputs {
 		b.WriteString(labels[i])
 		b.WriteString(m.Inputs[i].View())
