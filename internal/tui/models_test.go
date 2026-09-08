@@ -161,6 +161,7 @@ func TestQueryCacheSuggestionsAndFrequency(t *testing.T) {
 	cache.CacheColumns([]string{"order_id", "customer_id"})
 	cache.AddCommand("SELECT id FROM orders")
 	cache.AddCommand("SELECT id FROM customers")
+	cache.AddCommand("SELECT")
 
 	suggestions := cache.GetSuggestions("ord")
 	if !slices.Contains(suggestions, "orders") || !slices.Contains(suggestions, "ORDER") || !slices.Contains(suggestions, "order_id") {

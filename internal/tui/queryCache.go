@@ -73,6 +73,9 @@ func (qc *QueryCache) GetMostUsedCommands(limit int) []string {
 
 	// Sort by frequency (descending)
 	sort.Slice(commands, func(i, j int) bool {
+		if commands[i].freq == commands[j].freq {
+			return commands[i].command < commands[j].command
+		}
 		return commands[i].freq > commands[j].freq
 	})
 
@@ -146,6 +149,9 @@ func (qc *QueryCache) GetSuggestions(input string) []string {
 
 	// Sort by frequency (descending)
 	sort.Slice(cachedCommands, func(i, j int) bool {
+		if cachedCommands[i].freq == cachedCommands[j].freq {
+			return cachedCommands[i].command < cachedCommands[j].command
+		}
 		return cachedCommands[i].freq > cachedCommands[j].freq
 	})
 
