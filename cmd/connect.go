@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ASHUTOSH-SWAIN-GIT/maxim/internal/config"
 	"github.com/ASHUTOSH-SWAIN-GIT/maxim/internal/db"
 	"github.com/ASHUTOSH-SWAIN-GIT/maxim/internal/tui"
 	"github.com/spf13/cobra"
@@ -15,34 +14,18 @@ var connectCmd = &cobra.Command{
 	Short: "Connect to a database and save credentials",
 	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		// Show connect form directly for local database
-		result, err := tui.RunConnectForm()
+		conn, result, err := openManagedConnection()
 		if err != nil {
-			fmt.Printf("Error running form: %v\n", err)
+			fmt.Printf("Connection failed: %v\n", err)
 			os.Exit(1)
 		}
-
 		if result.Quitting {
 			fmt.Println("Connection cancelled.")
-			os.Exit(0)
-		}
-
-		conn, err := db.ConnectPostgres(db.ConnectionOptions{
-			User: result.User, Password: result.Password, Host: result.Host,
-			Port: result.Port, Database: result.DBName, SSLMode: result.SSLMode,
-		})
-		if err != nil {
-			fmt.Printf("\n Connection failed: %v\n", err)
-			os.Exit(1)
+			return
 		}
 		defer conn.Close()
 
 		fmt.Println("\n Connected successfully!")
-
-		if err := saveConnectionProfile(result); err != nil {
-			fmt.Printf("\n Failed to save credentials: %v\n", err)
-			os.Exit(1)
-		}
 
 		// Show database operations menu (same as TUI version)
 		for {
@@ -85,10 +68,5 @@ var connectCmd = &cobra.Command{
 }
 
 func saveConnectionProfile(result tui.ConnectResult) error {
-	details := config.ConnectionDetails{
-		Host: result.Host, Port: result.Port, User: result.User,
-		DBName: result.DBName, SSLMode: result.SSLMode,
-	}
-	name := fmt.Sprintf("%s@%s:%s/%s", result.User, result.Host, result.Port, result.DBName)
-	return config.SaveDatabaseConnection(name, details, result.Password)
+	return saveConnectionProfileAs("", result)
 }

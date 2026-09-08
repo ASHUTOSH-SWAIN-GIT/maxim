@@ -161,6 +161,11 @@ Enter your database credentials:
 
 Your connection details (except password) will be saved for future use.
 
+When saved connections exist, Maxim shows a connection manager before opening
+the database. Press `Enter` to connect, `n` to add a connection, `e` to edit,
+`r` to rename, or `d` to delete a saved profile. Maxim asks for the password
+when connecting and never writes it to the configuration file.
+
 ### 3. Explore Your Database
 
 After connecting, you'll see the database operations menu:
@@ -257,7 +262,8 @@ When viewing table data:
 
 Connection details are stored securely in your system's configuration directory:
 
-- **Linux/macOS**: `~/.config/maxim/config.json`
+- **Linux**: `~/.config/maxim/config.json`
+- **macOS**: `~/Library/Application Support/maxim/config.json`
 - **Windows**: `%APPDATA%\maxim\config.json`
 
 Only connection details (host, port, username, database name) are saved—passwords are never stored and must be entered each time.

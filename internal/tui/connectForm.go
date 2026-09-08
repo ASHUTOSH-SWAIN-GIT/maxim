@@ -27,7 +27,11 @@ type ConnectResult struct {
 }
 
 func RunConnectForm() (ConnectResult, error) {
-	m, err := tea.NewProgram(initialConnectFormModel()).Run()
+	return RunConnectFormWithDefaults(ConnectResult{})
+}
+
+func RunConnectFormWithDefaults(defaults ConnectResult) (ConnectResult, error) {
+	m, err := tea.NewProgram(initialConnectFormModelWithDefaults(defaults)).Run()
 	if err != nil {
 		return ConnectResult{}, err
 	}
@@ -48,6 +52,10 @@ func RunConnectForm() (ConnectResult, error) {
 }
 
 func initialConnectFormModel() ConnectFormModel {
+	return initialConnectFormModelWithDefaults(ConnectResult{})
+}
+
+func initialConnectFormModelWithDefaults(defaults ConnectResult) ConnectFormModel {
 	m := ConnectFormModel{
 		Inputs: make([]textinput.Model, 6),
 	}
@@ -61,19 +69,31 @@ func initialConnectFormModel() ConnectFormModel {
 
 		switch i {
 		case 0:
-			t.SetValue("localhost")
+			t.SetValue(valueOrDefault(defaults.Host, "localhost"))
 			t.Focus()
 		case 1:
-			t.SetValue("5432")
+			t.SetValue(valueOrDefault(defaults.Port, "5432"))
+		case 2:
+			t.SetValue(defaults.User)
 		case 3:
 			t.EchoMode = textinput.EchoPassword
 			t.EchoCharacter = '•'
+			t.SetValue(defaults.Password)
+		case 4:
+			t.SetValue(defaults.DBName)
 		case 5:
-			t.SetValue("prefer")
+			t.SetValue(valueOrDefault(defaults.SSLMode, "prefer"))
 		}
 		m.Inputs[i] = t
 	}
 	return m
+}
+
+func valueOrDefault(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func (m ConnectFormModel) Init() tea.Cmd {

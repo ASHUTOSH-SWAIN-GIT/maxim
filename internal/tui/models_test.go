@@ -182,3 +182,89 @@ func TestSplitSQLStatements(t *testing.T) {
 		t.Fatalf("unexpected statements: %#v", statements)
 	}
 }
+
+func TestConnectionManagerActions(t *testing.T) {
+	tests := []struct {
+		name       string
+		key        tea.KeyMsg
+		cursor     int
+		wantAction ConnectionAction
+		wantName   string
+	}{
+		{"connect", key(tea.KeyEnter), 0, ConnectionActionConnect, "local"},
+		{"new shortcut", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}, 0, ConnectionActionNew, ""},
+		{"edit", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}}, 0, ConnectionActionEdit, "local"},
+		{"rename", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}}, 0, ConnectionActionRename, "local"},
+		{"delete", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}}, 0, ConnectionActionDelete, "local"},
+		{"new item", key(tea.KeyEnter), 2, ConnectionActionNew, ""},
+		{"quit", key(tea.KeyEsc), 0, ConnectionActionQuit, ""},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			model := initialConnectionManagerModel([]string{"local", "production"})
+			model.cursor = test.cursor
+			updated, command := model.Update(test.key)
+			model = updated.(connectionManagerModel)
+			if command == nil || !model.done {
+				t.Fatal("action did not finish the connection manager")
+			}
+			if model.result.Action != test.wantAction || model.result.Name != test.wantName {
+				t.Fatalf("result = %#v, want action=%q name=%q", model.result, test.wantAction, test.wantName)
+			}
+		})
+	}
+}
+
+func TestConnectionManagerNavigationAndView(t *testing.T) {
+	model := initialConnectionManagerModel([]string{"local"})
+	if view := model.View(); !strings.Contains(view, "local") || !strings.Contains(view, "+ Add connection") {
+		t.Fatalf("connection manager view is incomplete: %q", view)
+	}
+	updated, _ := model.Update(key(tea.KeyDown))
+	model = updated.(connectionManagerModel)
+	if model.cursor != 1 {
+		t.Fatalf("cursor = %d, want add-connection item", model.cursor)
+	}
+	updated, _ = model.Update(key(tea.KeyDown))
+	if updated.(connectionManagerModel).cursor != 1 {
+		t.Fatal("cursor moved past add-connection item")
+	}
+}
+
+func TestNameAndConfirmationModels(t *testing.T) {
+	name := initialNameFormModel("Rename", "old")
+	name.input.SetValue("   ")
+	updated, command := name.Update(key(tea.KeyEnter))
+	name = updated.(nameFormModel)
+	if command != nil || name.done || name.error == "" {
+		t.Fatal("empty name should remain open with an error")
+	}
+	name.input.SetValue("new")
+	updated, command = name.Update(key(tea.KeyEnter))
+	name = updated.(nameFormModel)
+	if command == nil || !name.done {
+		t.Fatal("valid name did not submit")
+	}
+
+	confirmation := confirmationModel{prompt: "Delete?"}
+	updated, command = confirmation.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	confirmation = updated.(confirmationModel)
+	if command == nil || !confirmation.done || !confirmation.confirmed {
+		t.Fatal("yes did not confirm operation")
+	}
+}
+
+func TestConnectionFormUsesSavedDefaults(t *testing.T) {
+	model := initialConnectFormModelWithDefaults(ConnectResult{
+		Host: "db.example.com", Port: "6432", User: "maxim",
+		DBName: "app", SSLMode: "verify-full",
+	})
+	values := []string{
+		model.Inputs[0].Value(), model.Inputs[1].Value(), model.Inputs[2].Value(),
+		model.Inputs[4].Value(), model.Inputs[5].Value(),
+	}
+	if !slices.Equal(values, []string{"db.example.com", "6432", "maxim", "app", "verify-full"}) {
+		t.Fatalf("saved defaults not applied: %v", values)
+	}
+}

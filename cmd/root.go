@@ -52,29 +52,16 @@ create new databases, and perform various database operations.`,
 
 		switch choice {
 		case 0:
-			// Connect to local DB - show connect form directly
-			result, err := tui.RunConnectForm()
+			conn, result, err := openManagedConnection()
 			if err != nil {
-				fmt.Printf("Error running form: %v\n", err)
+				fmt.Printf("Connection failed: %v\n", err)
 				os.Exit(1)
 			}
 			if result.Quitting {
 				fmt.Println("Connection cancelled.")
-				os.Exit(0)
-			}
-
-			conn, err := db.ConnectPostgres(db.ConnectionOptions{
-				User: result.User, Password: result.Password, Host: result.Host,
-				Port: result.Port, Database: result.DBName, SSLMode: result.SSLMode,
-			})
-			if err != nil {
-				fmt.Printf(" Connection failed: %v\n", err)
-				os.Exit(1)
+				return
 			}
 			defer conn.Close()
-			if err := saveConnectionProfile(result); err != nil {
-				fmt.Printf("Warning: could not save connection: %v\n", err)
-			}
 
 			// Show database operations menu
 			for {
