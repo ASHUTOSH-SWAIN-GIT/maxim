@@ -2,6 +2,8 @@
 
 **Maxim** is a fast, modern terminal user interface (TUI) for working with PostgreSQL databases. Browse tables, view data, and run SQL queries with intelligent autocomplete—all without leaving your terminal.
 
+See the [product roadmap](ROADMAP.md) for the implementation order, feature priorities, and release criteria.
+
 ![Maxim](https://img.shields.io/badge/version-1.0.2-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Go](https://img.shields.io/badge/go-1.21+-00ADD8)

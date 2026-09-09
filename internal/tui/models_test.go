@@ -277,7 +277,7 @@ func TestWorkspaceNavigationAndTableContent(t *testing.T) {
 	model := initialWorkspaceModel(nil, "maxim_demo", "maxim@localhost:5432")
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
 	model = updated.(workspaceModel)
-	updated, _ = model.Update(workspaceTablesLoadedMsg{tables: []string{"customers", "orders"}})
+	updated, _ = model.Update(workspaceTablesLoadedMsg{requestID: 1, tables: []string{"customers", "orders"}})
 	model = updated.(workspaceModel)
 	if model.loading || len(model.tables) != 2 {
 		t.Fatalf("tables did not load: %#v", model)
@@ -295,6 +295,7 @@ func TestWorkspaceNavigationAndTableContent(t *testing.T) {
 	}
 
 	loaded := workspaceTableLoadedMsg{
+		requestID: 2,
 		tableName: "orders",
 		structure: []db.TableColumnInfo{{Name: "id", DataType: "bigint", PrimaryKey: true}},
 		columns:   []table.Column{{Title: "id"}, {Title: "status"}},
@@ -330,7 +331,7 @@ func TestWorkspaceErrorsAndResponsiveLayout(t *testing.T) {
 	model := initialWorkspaceModel(nil, "app", "user@host:5432")
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 70, Height: 24})
 	model = updated.(workspaceModel)
-	updated, _ = model.Update(workspaceTablesLoadedMsg{err: errors.New("database unavailable")})
+	updated, _ = model.Update(workspaceTablesLoadedMsg{requestID: 1, err: errors.New("database unavailable")})
 	model = updated.(workspaceModel)
 	if !strings.Contains(model.content.View(), "database unavailable") {
 		t.Fatalf("workspace error missing: %q", model.content.View())
@@ -368,5 +369,55 @@ func TestWorkspaceFilterAndSortControls(t *testing.T) {
 	model = updated.(workspaceModel)
 	if !model.sortDescending || command == nil {
 		t.Fatal("sort direction did not reverse")
+	}
+}
+
+func TestWorkspaceRequestLifecycle(t *testing.T) {
+	model := initialWorkspaceModel(nil, "app", "user@host:5432")
+	model.activeRequestID = 3
+	model.nextRequestID = 3
+	model.selectedTable = "current"
+	model.loading = true
+
+	updated, _ := model.Update(workspaceTableLoadedMsg{
+		requestID: 2, tableName: "stale", rows: []table.Row{{"old"}},
+	})
+	model = updated.(workspaceModel)
+	if model.selectedTable != "current" || !model.loading {
+		t.Fatalf("stale response changed workspace state: %#v", model)
+	}
+
+	model.filterEditing = true
+	updated, _ = model.Update(workspaceTableLoadedMsg{
+		requestID: 3, tableName: "latest", columns: []table.Column{{Title: "id"}}, rows: []table.Row{{"1"}},
+	})
+	model = updated.(workspaceModel)
+	if model.selectedTable != "latest" || model.loading || !model.filterEditing || model.activeRequestID != 0 {
+		t.Fatalf("current response was not handled while filter was open: %#v", model)
+	}
+
+	cancelled := false
+	model.requestCancel = func() { cancelled = true }
+	command := model.startBrowse("latest", db.TableBrowseRequest{Limit: 100})
+	if !cancelled || command == nil || model.activeRequestID != 4 || !model.loading {
+		t.Fatalf("replacement request did not cancel and advance: cancelled=%t id=%d loading=%t", cancelled, model.activeRequestID, model.loading)
+	}
+	model.filterEditing = false
+	model.mode = workspaceModeEditor
+	updated, _ = model.Update(workspaceTableLoadedMsg{
+		requestID: 4, tableName: "editor-result", columns: []table.Column{{Title: "id"}}, rows: []table.Row{{"2"}},
+	})
+	model = updated.(workspaceModel)
+	if model.selectedTable != "editor-result" || model.loading {
+		t.Fatalf("current response was not handled while editor was open: %#v", model)
+	}
+
+	command = model.startBrowse("editor-result", db.TableBrowseRequest{Limit: 100})
+	if command == nil || model.activeRequestID != 5 {
+		t.Fatalf("next request did not advance after completion: id=%d", model.activeRequestID)
+	}
+	model.cancelRequest()
+	if model.activeRequestID != 0 || model.loading || model.requestCancel != nil {
+		t.Fatalf("request cancellation did not clear lifecycle state: %#v", model)
 	}
 }

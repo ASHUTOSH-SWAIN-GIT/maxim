@@ -36,7 +36,14 @@ type TableBrowsePage struct {
 // keyset pagination when sorting by a single-column primary key and safely
 // falls back to OFFSET for other orderings.
 func BrowseTable(database *sql.DB, tableName string, request TableBrowseRequest) (TableBrowsePage, error) {
-	structure, err := GetTableStructure(database, tableName)
+	return BrowseTableContext(context.Background(), database, tableName, request)
+}
+
+func BrowseTableContext(parent context.Context, database *sql.DB, tableName string, request TableBrowseRequest) (TableBrowsePage, error) {
+	ctx, cancel := context.WithTimeout(parent, tableBrowseTimeout)
+	defer cancel()
+
+	structure, err := GetTableStructureContext(ctx, database, tableName)
 	if err != nil {
 		return TableBrowsePage{}, err
 	}
@@ -118,8 +125,6 @@ func BrowseTable(database *sql.DB, tableName string, request TableBrowseRequest)
 		query.WriteString(fmt.Sprintf(" OFFSET %d", request.Offset))
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), tableBrowseTimeout)
-	defer cancel()
 	rows, err := database.QueryContext(ctx, query.String(), arguments...)
 	if err != nil {
 		return TableBrowsePage{}, err

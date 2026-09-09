@@ -3,7 +3,9 @@
 package db
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -72,6 +74,19 @@ func TestIntegrationConnectAndListDatabases(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("connection unexpectedly succeeded with an invalid password")
+	}
+}
+
+func TestIntegrationBrowseHonorsCancellation(t *testing.T) {
+	database, _ := openIntegrationDatabase(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := BrowseTableContext(ctx, database, "table_that_is_never_queried", TableBrowseRequest{Limit: 10}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled browse returned %v, want context.Canceled", err)
+	}
+	if _, err := GetTablesContext(ctx, database); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled table discovery returned %v, want context.Canceled", err)
 	}
 }
 

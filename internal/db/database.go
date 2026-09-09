@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net"
@@ -130,8 +131,12 @@ func ListDatabases(db *sql.DB) ([]string, error) {
 }
 
 func GetTables(db *sql.DB) ([]string, error) {
+	return GetTablesContext(context.Background(), db)
+}
+
+func GetTablesContext(ctx context.Context, db *sql.DB) ([]string, error) {
 	query := "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public';"
-	rows, err := db.Query(query)
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -384,6 +389,10 @@ func GetAllTables(db *sql.DB) ([]string, error) {
 
 // GetTableStructure returns column metadata for a table in the public schema.
 func GetTableStructure(db *sql.DB, tableName string) ([]TableColumnInfo, error) {
+	return GetTableStructureContext(context.Background(), db, tableName)
+}
+
+func GetTableStructureContext(ctx context.Context, db *sql.DB, tableName string) ([]TableColumnInfo, error) {
 	const query = `
 		SELECT c.column_name,
 		       c.data_type,
@@ -404,7 +413,7 @@ func GetTableStructure(db *sql.DB, tableName string) ([]TableColumnInfo, error) 
 		WHERE c.table_schema = 'public' AND c.table_name = $1
 		ORDER BY c.ordinal_position`
 
-	rows, err := db.Query(query, tableName)
+	rows, err := db.QueryContext(ctx, query, tableName)
 	if err != nil {
 		return nil, err
 	}
