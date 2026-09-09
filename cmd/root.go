@@ -52,54 +52,8 @@ create new databases, and perform various database operations.`,
 
 		switch choice {
 		case 0:
-			conn, result, err := openManagedConnection()
-			if err != nil {
-				fmt.Printf("Connection failed: %v\n", err)
-				os.Exit(1)
-			}
-			if result.Quitting {
-				fmt.Println("Connection cancelled.")
-				return
-			}
-			defer conn.Close()
-
-			// Show database operations menu
-			for {
-				opsChoice, err := tui.RunDBOperationsMenu(result.DBName)
-				if err != nil {
-					fmt.Printf("Error running operations menu: %v\n", err)
-					break
-				}
-
-				// Check if user pressed 'q' to quit
-				if opsChoice == -1 {
-					break
-				}
-
-				switch opsChoice {
-				case 0: // Show table data
-					tables, err := db.GetTables(conn)
-					if err != nil {
-						fmt.Printf("Error fetching tables: %v\n", err)
-						continue
-					}
-					selectedTable, err := tui.RunTableList(tables)
-					if err != nil {
-						continue
-					}
-
-					if err := tui.RunPagedDataViewer(conn, selectedTable); err != nil {
-						fmt.Printf("Error displaying data: %v\n", err)
-					}
-
-				case 1: // Editor
-					if err := tui.RunSQLEditor(conn, result.DBName); err != nil {
-						fmt.Printf("Error running SQL editor: %v\n", err)
-					}
-
-				default:
-					return
-				}
+			if err := runManagedWorkspace(); err != nil {
+				fmt.Printf("Workspace error: %v\n", err)
 			}
 		case 1:
 			// Create flow - show submenu for Local vs Docker

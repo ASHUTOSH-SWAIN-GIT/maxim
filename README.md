@@ -168,10 +168,16 @@ when connecting and never writes it to the configuration file.
 
 ### 3. Explore Your Database
 
-After connecting, you'll see the database operations menu:
+After connecting, Maxim opens a focused database workspace. Saved connections
+disappear after selection; the active database stays in the compact header while
+the main area switches between table data, structure, and the SQL editor.
 
-- **Show table data** - Browse tables and view data with pagination
-- **Editor** - Open the SQL editor
+- Use `j/k` or the arrow keys and `Enter` to open a table from the navigator.
+- Press `b` to show or hide the table navigator.
+- Use `Left/Right` to switch between Structure and Data.
+- Use `n/p` to move between 100-row pages.
+- Press `e` to open the SQL editor and `Esc` to return to the workspace.
+- Press `c` to change connections without restarting Maxim.
 
 ## Docker Database (Container) Support
 
@@ -248,15 +254,24 @@ The SQL Editor provides a split-panel interface:
 - `Ctrl+R` - Clear results
 - `Tab` - Cycle through autocomplete suggestions
 - `Enter` - Select highlighted suggestion
-- `Esc` - Return to database operations menu
+- `Esc` - Return to the database workspace
 
 ### Viewing Table Data
 
-When viewing table data:
-- **Enter** - Load next page (100 rows)
-- **Arrow keys** - Scroll through data
-- **PageUp/PageDown** - Navigate pages
-- **Esc** - Return to menu
+In the database workspace:
+
+- `j/k` or `Up/Down` - Select a table
+- `Enter` - Load the selected table
+- `b` - Show or hide the table navigator
+- `Tab` - Switch between data and structure
+- `Up/Down` or `j/k` - Select a row in the data grid
+- `Enter` - Peek at every field and the full value for the selected row
+- `Esc` - Return from the row peek to the data grid
+- `Left/Right` - Switch between table structure and row data
+- `n/p` - Load the next or previous page (100 rows)
+- `e` - Open the SQL editor
+- `c` - Return to the saved connection manager
+- `q` - Quit
 
 ## Configuration
 

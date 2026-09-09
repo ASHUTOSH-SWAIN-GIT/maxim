@@ -46,7 +46,7 @@ func initialSQLEditorModel(conn *sql.DB, dbName string) sqlEditorModel {
 		"• Press Enter to select highlighted suggestion\n" +
 		"• Press Ctrl+A to run all queries\n" +
 		"• Press Ctrl+R to clear results\n" +
-		"• Press Esc to quit\n\n" +
+		"• Press Esc to return to the workspace\n\n" +
 		"Example queries:\n" +
 		"SELECT * FROM users;\n" +
 		"INSERT INTO users (name) VALUES ('John');\n" +
@@ -91,24 +91,15 @@ func (m sqlEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		// Use the full terminal size for the editor
-		// Reserve minimal space for borders and padding
-		verticalMarginHeight := 4 // Minimal padding for borders
-
-		if !m.ready {
-			// Use full terminal width and height
-			m.textarea.SetWidth(msg.Width / 2)
-			m.textarea.SetHeight(msg.Height - verticalMarginHeight)
-			m.viewport.Width = msg.Width / 2
-			m.viewport.Height = msg.Height - verticalMarginHeight
-			m.ready = true
-		} else {
-			// Responsive resizing - use full terminal size
-			m.textarea.SetWidth(msg.Width / 2)
-			m.textarea.SetHeight(msg.Height - verticalMarginHeight)
-			m.viewport.Width = msg.Width / 2
-			m.viewport.Height = msg.Height - verticalMarginHeight
-		}
+		// Account for both panels' borders and horizontal padding so the editor
+		// never wraps beyond the terminal edge.
+		panelWidth := max((msg.Width-8)/2, 16)
+		panelHeight := max(msg.Height-4, 4)
+		m.textarea.SetWidth(panelWidth)
+		m.textarea.SetHeight(panelHeight)
+		m.viewport.Width = panelWidth
+		m.viewport.Height = panelHeight
+		m.ready = true
 
 	case tea.KeyMsg:
 		switch msg.Type {
@@ -220,7 +211,7 @@ func (m sqlEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						"• Press Enter to select highlighted suggestion\n" +
 						"• Press Ctrl+A to run all queries\n" +
 						"• Press Ctrl+R to clear results\n" +
-						"• Press Esc to quit\n\n" +
+						"• Press Esc to return to the workspace\n\n" +
 						"Example queries:\n" +
 						"SELECT * FROM users;\n" +
 						"INSERT INTO users (name) VALUES ('John');\n" +
@@ -384,15 +375,11 @@ func (m sqlEditorModel) View() string {
 	if m.viewport.Width < panelWidth {
 		panelWidth = m.viewport.Width
 	}
-	panelWidth += 2 // Add border width
-
 	// Calculate consistent panel height
 	panelHeight := m.textarea.Height()
 	if m.viewport.Height > panelHeight {
 		panelHeight = m.viewport.Height
 	}
-	panelHeight += 2 // Add border height
-
 	// Create left panel (SQL Query) with consistent dimensions
 	leftPanel := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder()).

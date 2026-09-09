@@ -128,6 +128,14 @@ func TestIntegrationSchemaDiscoveryAndPagination(t *testing.T) {
 		}
 	}
 
+	structure, err := GetTableStructure(database, tableName)
+	if err != nil {
+		t.Fatalf("get table structure: %v", err)
+	}
+	if len(structure) != 4 || structure[0].Name != "id" || !structure[0].PrimaryKey || !structure[3].Nullable {
+		t.Fatalf("unexpected table structure: %#v", structure)
+	}
+
 	cache, err := NewSchemaCache(database)
 	if err != nil {
 		t.Fatalf("build schema cache: %v", err)

@@ -20,6 +20,14 @@ type ConnectionOptions struct {
 	SSLMode  string
 }
 
+type TableColumnInfo struct {
+	Name       string
+	DataType   string
+	Nullable   bool
+	Default    string
+	PrimaryKey bool
+}
+
 var supportedSSLModes = map[string]bool{
 	"disable":     true,
 	"allow":       true,
@@ -372,4 +380,43 @@ func GetAllTables(db *sql.DB) ([]string, error) {
 	}
 
 	return tables, nil
+}
+
+// GetTableStructure returns column metadata for a table in the public schema.
+func GetTableStructure(db *sql.DB, tableName string) ([]TableColumnInfo, error) {
+	const query = `
+		SELECT c.column_name,
+		       c.data_type,
+		       c.is_nullable = 'YES',
+		       COALESCE(c.column_default, ''),
+		       EXISTS (
+		           SELECT 1
+		           FROM information_schema.table_constraints tc
+		           JOIN information_schema.key_column_usage kcu
+		             ON tc.constraint_name = kcu.constraint_name
+		            AND tc.constraint_schema = kcu.constraint_schema
+		           WHERE tc.constraint_type = 'PRIMARY KEY'
+		             AND tc.table_schema = c.table_schema
+		             AND tc.table_name = c.table_name
+		             AND kcu.column_name = c.column_name
+		       )
+		FROM information_schema.columns c
+		WHERE c.table_schema = 'public' AND c.table_name = $1
+		ORDER BY c.ordinal_position`
+
+	rows, err := db.Query(query, tableName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var columns []TableColumnInfo
+	for rows.Next() {
+		var column TableColumnInfo
+		if err := rows.Scan(&column.Name, &column.DataType, &column.Nullable, &column.Default, &column.PrimaryKey); err != nil {
+			return nil, err
+		}
+		columns = append(columns, column)
+	}
+	return columns, rows.Err()
 }

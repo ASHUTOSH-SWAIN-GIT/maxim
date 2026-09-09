@@ -167,3 +167,32 @@ func saveConnectionProfileAs(name string, result tui.ConnectResult) error {
 	}
 	return config.SaveDatabaseConnection(name, details, result.Password)
 }
+
+func connectionDisplayLabel(result tui.ConnectResult) string {
+	return fmt.Sprintf("%s@%s:%s/%s", result.User, result.Host, result.Port, result.DBName)
+}
+
+func runManagedWorkspace() error {
+	for {
+		connection, result, err := openManagedConnection()
+		if err != nil {
+			return err
+		}
+		if result.Quitting {
+			return nil
+		}
+		changeConnection, workspaceErr := tui.RunWorkspace(
+			connection, result.DBName, connectionDisplayLabel(result),
+		)
+		closeErr := connection.Close()
+		if workspaceErr != nil {
+			return workspaceErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		if !changeConnection {
+			return nil
+		}
+	}
+}

@@ -1,10 +1,13 @@
 package tui
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/ASHUTOSH-SWAIN-GIT/maxim/internal/db"
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -267,5 +270,72 @@ func TestConnectionFormUsesSavedDefaults(t *testing.T) {
 	}
 	if !slices.Equal(values, []string{"db.example.com", "6432", "maxim", "app", "verify-full"}) {
 		t.Fatalf("saved defaults not applied: %v", values)
+	}
+}
+
+func TestWorkspaceNavigationAndTableContent(t *testing.T) {
+	model := initialWorkspaceModel(nil, "maxim_demo", "maxim@localhost:5432")
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
+	model = updated.(workspaceModel)
+	updated, _ = model.Update(workspaceTablesLoadedMsg{tables: []string{"customers", "orders"}})
+	model = updated.(workspaceModel)
+	if model.loading || len(model.tables) != 2 {
+		t.Fatalf("tables did not load: %#v", model)
+	}
+
+	updated, _ = model.Update(key(tea.KeyDown))
+	model = updated.(workspaceModel)
+	if model.cursor != 1 {
+		t.Fatalf("table cursor = %d, want 1", model.cursor)
+	}
+	updated, command := model.Update(key(tea.KeyEnter))
+	model = updated.(workspaceModel)
+	if !model.loading || command == nil {
+		t.Fatal("opening a table did not start loading")
+	}
+
+	loaded := workspaceTableLoadedMsg{
+		tableName: "orders",
+		structure: []db.TableColumnInfo{{Name: "id", DataType: "bigint", PrimaryKey: true}},
+		columns:   []table.Column{{Title: "id"}, {Title: "status"}},
+		rows:      []table.Row{{"1", "paid"}},
+	}
+	updated, _ = model.Update(loaded)
+	model = updated.(workspaceModel)
+	if model.selectedTable != "orders" || model.navigatorOpen || !strings.Contains(model.content.View(), "Data · orders") {
+		t.Fatalf("table data did not open: %q", model.content.View())
+	}
+	updated, _ = model.Update(key(tea.KeyEnter))
+	model = updated.(workspaceModel)
+	if !model.rowPeek || !strings.Contains(model.content.View(), "Row 1 · orders") || !strings.Contains(model.content.View(), "status  paid") {
+		t.Fatalf("row peek did not open: %q", model.content.View())
+	}
+	updated, _ = model.Update(key(tea.KeyEsc))
+	model = updated.(workspaceModel)
+	if model.rowPeek {
+		t.Fatal("row peek did not close")
+	}
+
+	updated, _ = model.Update(key(tea.KeyTab))
+	model = updated.(workspaceModel)
+	if model.focus != workspaceFocusContent || model.tab != workspaceTabStructure || !strings.Contains(model.content.View(), "Structure · orders") {
+		t.Fatalf("structure tab did not activate: focus=%d tab=%d content=%q", model.focus, model.tab, model.content.View())
+	}
+	if view := model.View(); !strings.Contains(view, "MAXIM") || !strings.Contains(view, "connected") {
+		t.Fatalf("workspace chrome missing: %q", view)
+	}
+}
+
+func TestWorkspaceErrorsAndResponsiveLayout(t *testing.T) {
+	model := initialWorkspaceModel(nil, "app", "user@host:5432")
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 70, Height: 24})
+	model = updated.(workspaceModel)
+	updated, _ = model.Update(workspaceTablesLoadedMsg{err: errors.New("database unavailable")})
+	model = updated.(workspaceModel)
+	if !strings.Contains(model.content.View(), "database unavailable") {
+		t.Fatalf("workspace error missing: %q", model.content.View())
+	}
+	if view := model.View(); !strings.Contains(view, "app") || !strings.Contains(view, "connected") {
+		t.Fatalf("compact layout lost database context: %q", view)
 	}
 }
