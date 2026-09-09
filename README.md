@@ -267,6 +267,9 @@ In the database workspace:
 - `Up/Down` or `j/k` - Select a row in the data grid
 - `Enter` - Peek at every field and the full value for the selected row
 - `Esc` - Return from the row peek to the data grid
+- `/` - Apply a server-side `column=value` filter
+- `s` - Cycle the sort column
+- `Shift+S` - Reverse the sort direction
 - `Left/Right` - Switch between table structure and row data
 - `n/p` - Load the next or previous page (100 rows)
 - `e` - Open the SQL editor

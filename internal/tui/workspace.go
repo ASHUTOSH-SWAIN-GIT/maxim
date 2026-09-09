@@ -7,6 +7,7 @@ import (
 
 	"github.com/ASHUTOSH-SWAIN-GIT/maxim/internal/db"
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -39,12 +40,22 @@ type workspaceTablesLoadedMsg struct {
 }
 
 type workspaceTableLoadedMsg struct {
-	tableName string
-	structure []db.TableColumnInfo
-	columns   []table.Column
-	rows      []table.Row
-	offset    int
-	err       error
+	tableName      string
+	structure      []db.TableColumnInfo
+	columns        []table.Column
+	rows           []table.Row
+	offset         int
+	hasNext        bool
+	nextCursor     string
+	keysetEnabled  bool
+	cursorHistory  []string
+	sortColumn     string
+	sortDescending bool
+	filterColumn   string
+	filterValue    string
+	filterEditing  bool
+	filterInput    textinput.Model
+	err            error
 }
 
 type workspaceModel struct {
@@ -66,6 +77,16 @@ type workspaceModel struct {
 	rowPeek          bool
 	pageSize         int
 	offset           int
+	hasNext          bool
+	nextCursor       string
+	keysetEnabled    bool
+	cursorHistory    []string
+	sortColumn       string
+	sortDescending   bool
+	filterColumn     string
+	filterValue      string
+	filterEditing    bool
+	filterInput      textinput.Model
 	loading          bool
 	err              string
 	width            int
@@ -77,10 +98,13 @@ type workspaceModel struct {
 func initialWorkspaceModel(database *sql.DB, dbName, connectionLabel string) workspaceModel {
 	content := viewport.New(80, 20)
 	content.SetContent("Choose a table to inspect its structure and data.")
+	filterInput := textinput.New()
+	filterInput.Prompt = "Filter column=value: "
+	filterInput.Placeholder = "status=paid"
 	return workspaceModel{
 		db: database, dbName: dbName, connectionLabel: connectionLabel,
 		focus: workspaceFocusExplorer, navigatorOpen: true, tab: workspaceTabData,
-		pageSize: 100, loading: true, content: content,
+		pageSize: 100, loading: true, content: content, filterInput: filterInput,
 	}
 }
 
@@ -96,22 +120,77 @@ func loadWorkspaceTables(database *sql.DB) tea.Cmd {
 }
 
 func loadWorkspaceTable(database *sql.DB, tableName string, pageSize, offset int) tea.Cmd {
+	return loadWorkspaceBrowse(database, tableName, db.TableBrowseRequest{Limit: pageSize, Offset: offset})
+}
+
+func loadWorkspaceBrowse(database *sql.DB, tableName string, request db.TableBrowseRequest) tea.Cmd {
 	return func() tea.Msg {
 		structure, err := db.GetTableStructure(database, tableName)
 		if err != nil {
-			return workspaceTableLoadedMsg{tableName: tableName, offset: offset, err: err}
+			return workspaceTableLoadedMsg{tableName: tableName, offset: request.Offset, err: err}
 		}
-		columns, rows, err := db.GetTableDataPage(database, tableName, pageSize, offset)
+		page, err := db.BrowseTable(database, tableName, request)
 		return workspaceTableLoadedMsg{
-			tableName: tableName, structure: structure, columns: columns,
-			rows: rows, offset: offset, err: err,
+			tableName: tableName, structure: structure, columns: page.Columns,
+			rows: page.Rows, offset: request.Offset, hasNext: page.HasNext,
+			nextCursor: page.NextCursor, keysetEnabled: page.KeysetEnabled,
+			sortColumn: page.SortColumn, sortDescending: request.Descending,
+			filterColumn: request.FilterColumn, filterValue: request.FilterValue, err: err,
 		}
 	}
+}
+
+func (m workspaceModel) browseRequest(cursor string, offset int) db.TableBrowseRequest {
+	return db.TableBrowseRequest{
+		Limit: m.pageSize, Offset: offset, SortColumn: m.sortColumn,
+		Descending: m.sortDescending, FilterColumn: m.filterColumn,
+		FilterValue: m.filterValue, Cursor: cursor,
+	}
+}
+
+func countPrimaryKeys(columns []db.TableColumnInfo) int {
+	count := 0
+	for _, column := range columns {
+		if column.PrimaryKey {
+			count++
+		}
+	}
+	return count
 }
 
 func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	if m.mode == workspaceModeEditor {
 		return m.updateEditor(message)
+	}
+	if m.filterEditing {
+		if key, ok := message.(tea.KeyMsg); ok {
+			switch key.Type {
+			case tea.KeyEsc:
+				m.filterEditing = false
+				m.filterInput.Blur()
+				return m, nil
+			case tea.KeyEnter:
+				value := strings.TrimSpace(m.filterInput.Value())
+				column, filter, found := strings.Cut(value, "=")
+				if value != "" && (!found || strings.TrimSpace(column) == "" || strings.TrimSpace(filter) == "") {
+					m.err = "Filter must use column=value, for example status=paid."
+					m.refreshContent()
+					return m, nil
+				}
+				m.filterColumn, m.filterValue = strings.TrimSpace(column), strings.TrimSpace(filter)
+				if value == "" {
+					m.filterColumn, m.filterValue = "", ""
+				}
+				m.filterEditing = false
+				m.filterInput.Blur()
+				m.cursorHistory = nil
+				m.loading = true
+				return m, loadWorkspaceBrowse(m.db, m.selectedTable, m.browseRequest("", 0))
+			}
+		}
+		var command tea.Cmd
+		m.filterInput, command = m.filterInput.Update(message)
+		return m, command
 	}
 
 	switch message := message.(type) {
@@ -140,6 +219,13 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.columns = message.columns
 			m.rows = message.rows
 			m.offset = message.offset
+			m.hasNext = message.hasNext
+			m.nextCursor = message.nextCursor
+			m.keysetEnabled = message.keysetEnabled
+			m.sortColumn = message.sortColumn
+			m.sortDescending = message.sortDescending
+			m.filterColumn = message.filterColumn
+			m.filterValue = message.filterValue
 			m.rowCursor = 0
 			m.rowPeek = false
 		}
@@ -177,6 +263,38 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.focus = workspaceFocusContent
 			}
 			return m, nil
+		case "/":
+			if !m.navigatorOpen && m.selectedTable != "" {
+				m.filterEditing = true
+				m.filterInput.SetValue("")
+				if m.filterColumn != "" {
+					m.filterInput.SetValue(m.filterColumn + "=" + m.filterValue)
+				}
+				m.filterInput.Focus()
+				return m, textinput.Blink
+			}
+		case "s":
+			if !m.navigatorOpen && len(m.structure) > 0 {
+				next := 0
+				for index, column := range m.structure {
+					if column.Name == m.sortColumn {
+						next = (index + 1) % len(m.structure)
+						break
+					}
+				}
+				m.sortColumn = m.structure[next].Name
+				m.keysetEnabled = m.structure[next].PrimaryKey && countPrimaryKeys(m.structure) == 1
+				m.cursorHistory = nil
+				m.loading = true
+				return m, loadWorkspaceBrowse(m.db, m.selectedTable, m.browseRequest("", 0))
+			}
+		case "S":
+			if !m.navigatorOpen && m.selectedTable != "" {
+				m.sortDescending = !m.sortDescending
+				m.cursorHistory = nil
+				m.loading = true
+				return m, loadWorkspaceBrowse(m.db, m.selectedTable, m.browseRequest("", 0))
+			}
 		case "e":
 			editor := initialSQLEditorModel(m.db, m.dbName)
 			m.editor = &editor
@@ -192,6 +310,9 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if m.navigatorOpen && len(m.tables) > 0 {
 				m.loading = true
 				m.err = ""
+				m.sortColumn, m.filterColumn, m.filterValue = "", "", ""
+				m.sortDescending = false
+				m.cursorHistory = nil
 				m.navigatorOpen = false
 				m.focus = workspaceFocusContent
 				return m, loadWorkspaceTable(m.db, m.tables[m.cursor], m.pageSize, 0)
@@ -216,9 +337,13 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "n":
-			if !m.navigatorOpen && m.selectedTable != "" && len(m.rows) == m.pageSize {
+			if !m.navigatorOpen && m.selectedTable != "" && m.hasNext {
 				m.loading = true
-				return m, loadWorkspaceTable(m.db, m.selectedTable, m.pageSize, m.offset+m.pageSize)
+				if m.keysetEnabled {
+					m.cursorHistory = append(m.cursorHistory, m.nextCursor)
+					return m, loadWorkspaceBrowse(m.db, m.selectedTable, m.browseRequest(m.nextCursor, m.offset+m.pageSize))
+				}
+				return m, loadWorkspaceBrowse(m.db, m.selectedTable, m.browseRequest("", m.offset+m.pageSize))
 			}
 		case "p":
 			if !m.navigatorOpen && m.selectedTable != "" && m.offset > 0 {
@@ -227,7 +352,14 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				if nextOffset < 0 {
 					nextOffset = 0
 				}
-				return m, loadWorkspaceTable(m.db, m.selectedTable, m.pageSize, nextOffset)
+				cursor := ""
+				if m.keysetEnabled && len(m.cursorHistory) > 0 {
+					m.cursorHistory = m.cursorHistory[:len(m.cursorHistory)-1]
+					if len(m.cursorHistory) > 0 {
+						cursor = m.cursorHistory[len(m.cursorHistory)-1]
+					}
+				}
+				return m, loadWorkspaceBrowse(m.db, m.selectedTable, m.browseRequest(cursor, nextOffset))
 			}
 		case "up", "k":
 			if m.navigatorOpen {
@@ -484,16 +616,33 @@ func (m workspaceModel) View() string {
 	} else {
 		tabs = header.Render("Data") + "  " + muted.Render("Structure") + "  " + muted.Render("Query")
 	}
-	contentBody := context + "    " + tabs + "\n" + separator + "\n\n"
+	contentBody := context + "    " + tabs + "\n" + separator + "\n"
+	if m.filterEditing {
+		contentBody += m.filterInput.View() + "\n" + separator + "\n"
+	} else if m.selectedTable != "" {
+		direction := "ASC"
+		if m.sortDescending {
+			direction = "DESC"
+		}
+		toolbar := "Sort: " + m.sortColumn + " " + direction
+		if m.filterColumn != "" {
+			toolbar += "  •  Filter: " + m.filterColumn + " = " + m.filterValue
+		}
+		if m.keysetEnabled {
+			toolbar += "  •  keyset pagination"
+		}
+		contentBody += muted.Render(toolbar) + "\n" + separator + "\n"
+	}
+	contentBody += "\n"
 	if m.loading && m.selectedTable != "" {
 		contentBody += muted.Render("Loading " + m.selectedTable + "…")
 	} else {
 		contentBody += m.content.View()
 	}
 
-	footerText := "↑/↓ row • Enter peek • b tables • Tab/←/→ view • n/p page • e query • c connections • q quit"
+	footerText := "↑/↓ row • Enter peek • / filter • s column • S direction • n/p page • b tables • e query • q quit"
 	if m.width > 0 && m.width < 90 {
-		footerText = "↑/↓ row • Enter peek • b tables • Tab view • e query • q quit"
+		footerText = "↑/↓ row • Enter peek • / filter • s sort • n/p page • b tables • q quit"
 	}
 	footer := muted.Render(footerText)
 	return top + "\n" + separator + "\n" + contentBody + "\n" + footer

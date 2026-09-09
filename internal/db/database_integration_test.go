@@ -118,6 +118,42 @@ func TestIntegrationSchemaDiscoveryAndPagination(t *testing.T) {
 		t.Fatalf("unexpected columns: %#v", columns)
 	}
 
+	firstPage, err := BrowseTable(database, tableName, TableBrowseRequest{Limit: 2})
+	if err != nil {
+		t.Fatalf("browse first keyset page: %v", err)
+	}
+	if !firstPage.KeysetEnabled || !firstPage.HasNext || firstPage.NextCursor != "2" || firstPage.Rows[0][0] != "1" {
+		t.Fatalf("unexpected first keyset page: %#v", firstPage)
+	}
+	secondPage, err := BrowseTable(database, tableName, TableBrowseRequest{Limit: 2, Cursor: firstPage.NextCursor})
+	if err != nil {
+		t.Fatalf("browse second keyset page: %v", err)
+	}
+	if len(secondPage.Rows) != 2 || secondPage.Rows[0][0] != "3" || secondPage.Rows[1][0] != "4" {
+		t.Fatalf("unexpected second keyset page: %#v", secondPage.Rows)
+	}
+	filtered, err := BrowseTable(database, tableName, TableBrowseRequest{
+		Limit: 10, FilterColumn: "enabled", FilterValue: "true",
+	})
+	if err != nil {
+		t.Fatalf("browse filtered rows: %v", err)
+	}
+	if len(filtered.Rows) != 2 || filtered.Rows[0][0] != "2" || filtered.Rows[1][0] != "4" {
+		t.Fatalf("unexpected filtered rows: %#v", filtered.Rows)
+	}
+	sorted, err := BrowseTable(database, tableName, TableBrowseRequest{
+		Limit: 2, SortColumn: "name", Descending: true,
+	})
+	if err != nil {
+		t.Fatalf("browse sorted rows: %v", err)
+	}
+	if sorted.KeysetEnabled || sorted.Rows[0][1] != "record-5" || sorted.Rows[1][1] != "record-4" {
+		t.Fatalf("unexpected custom sort: %#v", sorted)
+	}
+	if _, err := BrowseTable(database, tableName, TableBrowseRequest{FilterColumn: "id; DROP TABLE unsafe", FilterValue: "1"}); err == nil {
+		t.Fatal("unsafe filter column was accepted")
+	}
+
 	allColumns, err := GetAllColumns(database)
 	if err != nil {
 		t.Fatalf("get all columns: %v", err)

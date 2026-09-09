@@ -339,3 +339,34 @@ func TestWorkspaceErrorsAndResponsiveLayout(t *testing.T) {
 		t.Fatalf("compact layout lost database context: %q", view)
 	}
 }
+
+func TestWorkspaceFilterAndSortControls(t *testing.T) {
+	model := initialWorkspaceModel(nil, "app", "user@host:5432")
+	model.navigatorOpen = false
+	model.selectedTable = "orders"
+	model.structure = []db.TableColumnInfo{{Name: "id", PrimaryKey: true}, {Name: "status"}}
+	model.sortColumn = "id"
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model = updated.(workspaceModel)
+	if !model.filterEditing {
+		t.Fatal("filter editor did not open")
+	}
+	model.filterInput.SetValue("status=paid")
+	updated, command := model.Update(key(tea.KeyEnter))
+	model = updated.(workspaceModel)
+	if model.filterEditing || model.filterColumn != "status" || model.filterValue != "paid" || command == nil {
+		t.Fatalf("filter was not applied: %#v", model)
+	}
+
+	updated, command = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	model = updated.(workspaceModel)
+	if model.sortColumn != "status" || command == nil {
+		t.Fatalf("sort column did not advance: %q", model.sortColumn)
+	}
+	updated, command = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+	model = updated.(workspaceModel)
+	if !model.sortDescending || command == nil {
+		t.Fatal("sort direction did not reverse")
+	}
+}
