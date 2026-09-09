@@ -290,8 +290,8 @@ func TestWorkspaceNavigationAndTableContent(t *testing.T) {
 	}
 	updated, command := model.Update(key(tea.KeyEnter))
 	model = updated.(workspaceModel)
-	if !model.loading || command == nil {
-		t.Fatal("opening a table did not start loading")
+	if !model.loading || command == nil || !model.navigatorOpen || model.selectedTable != "" {
+		t.Fatal("opening a table changed navigation state before loading succeeded")
 	}
 
 	loaded := workspaceTableLoadedMsg{
@@ -356,19 +356,34 @@ func TestWorkspaceFilterAndSortControls(t *testing.T) {
 	model.filterInput.SetValue("status=paid")
 	updated, command := model.Update(key(tea.KeyEnter))
 	model = updated.(workspaceModel)
-	if model.filterEditing || model.filterColumn != "status" || model.filterValue != "paid" || command == nil {
-		t.Fatalf("filter was not applied: %#v", model)
+	if model.filterEditing || model.filterColumn != "" || model.pendingBrowse == nil || model.pendingBrowse.request.FilterColumn != "status" || command == nil {
+		t.Fatalf("filter was not staged: %#v", model)
+	}
+	updated, _ = model.Update(workspaceTableLoadedMsg{
+		requestID: 2, tableName: "orders", structure: model.structure,
+		columns: []table.Column{{Title: "id"}, {Title: "status"}}, rows: []table.Row{{"1", "paid"}},
+		sortColumn: "id", filterColumn: "status", filterValue: "paid",
+	})
+	model = updated.(workspaceModel)
+	if model.filterColumn != "status" || model.filterValue != "paid" {
+		t.Fatalf("successful filter was not committed: %#v", model)
 	}
 
 	updated, command = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	model = updated.(workspaceModel)
-	if model.sortColumn != "status" || command == nil {
-		t.Fatalf("sort column did not advance: %q", model.sortColumn)
+	if model.sortColumn != "id" || model.pendingBrowse == nil || model.pendingBrowse.request.SortColumn != "status" || command == nil {
+		t.Fatalf("sort column was not staged: %#v", model)
 	}
+	updated, _ = model.Update(workspaceTableLoadedMsg{
+		requestID: 3, tableName: "orders", structure: model.structure,
+		columns: model.columns, rows: model.rows, sortColumn: "status",
+		filterColumn: "status", filterValue: "paid",
+	})
+	model = updated.(workspaceModel)
 	updated, command = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
 	model = updated.(workspaceModel)
-	if !model.sortDescending || command == nil {
-		t.Fatal("sort direction did not reverse")
+	if model.sortDescending || model.pendingBrowse == nil || !model.pendingBrowse.request.Descending || command == nil {
+		t.Fatal("sort direction was not staged")
 	}
 }
 
@@ -398,7 +413,7 @@ func TestWorkspaceRequestLifecycle(t *testing.T) {
 
 	cancelled := false
 	model.requestCancel = func() { cancelled = true }
-	command := model.startBrowse("latest", db.TableBrowseRequest{Limit: 100})
+	command := model.startBrowse(workspaceBrowseIntent{tableName: "latest", request: db.TableBrowseRequest{Limit: 100}})
 	if !cancelled || command == nil || model.activeRequestID != 4 || !model.loading {
 		t.Fatalf("replacement request did not cancel and advance: cancelled=%t id=%d loading=%t", cancelled, model.activeRequestID, model.loading)
 	}
@@ -412,12 +427,48 @@ func TestWorkspaceRequestLifecycle(t *testing.T) {
 		t.Fatalf("current response was not handled while editor was open: %#v", model)
 	}
 
-	command = model.startBrowse("editor-result", db.TableBrowseRequest{Limit: 100})
+	command = model.startBrowse(workspaceBrowseIntent{tableName: "editor-result", request: db.TableBrowseRequest{Limit: 100}})
 	if command == nil || model.activeRequestID != 5 {
 		t.Fatalf("next request did not advance after completion: id=%d", model.activeRequestID)
 	}
 	model.cancelRequest()
 	if model.activeRequestID != 0 || model.loading || model.requestCancel != nil {
 		t.Fatalf("request cancellation did not clear lifecycle state: %#v", model)
+	}
+}
+
+func TestWorkspaceFailedPagePreservesCommittedStateAndRetries(t *testing.T) {
+	model := initialWorkspaceModel(nil, "app", "user@host:5432")
+	model.navigatorOpen = false
+	model.selectedTable = "orders"
+	model.columns = []table.Column{{Title: "id"}}
+	model.rows = []table.Row{{"100"}}
+	model.offset = 0
+	model.hasNext = true
+	model.nextCursor = "100"
+	model.keysetEnabled = true
+	model.sortColumn = "id"
+	model.cursorHistory = []string{}
+	model.refreshContent()
+
+	updated, command := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	model = updated.(workspaceModel)
+	if command == nil || model.offset != 0 || len(model.cursorHistory) != 0 || model.pendingBrowse == nil {
+		t.Fatalf("next page changed committed state before success: %#v", model)
+	}
+
+	updated, _ = model.Update(workspaceTableLoadedMsg{requestID: 2, tableName: "orders", offset: 100, err: errors.New("timeout")})
+	model = updated.(workspaceModel)
+	if model.offset != 0 || len(model.cursorHistory) != 0 || model.rows[0][0] != "100" || model.failedBrowse == nil {
+		t.Fatalf("failed page replaced committed state: %#v", model)
+	}
+	if !strings.Contains(model.content.View(), "100") || !strings.Contains(model.View(), "Load failed") {
+		t.Fatalf("failure did not preserve data and show notice: %q", model.View())
+	}
+
+	updated, command = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	model = updated.(workspaceModel)
+	if command == nil || model.activeRequestID != 3 || model.pendingBrowse == nil || model.pendingBrowse.request.Cursor != "100" {
+		t.Fatalf("retry did not restore failed request: %#v", model)
 	}
 }

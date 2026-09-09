@@ -60,6 +60,13 @@ type workspaceTableLoadedMsg struct {
 	err            error
 }
 
+type workspaceBrowseIntent struct {
+	tableName      string
+	request        db.TableBrowseRequest
+	cursorHistory  []string
+	closeNavigator bool
+}
+
 type workspaceModel struct {
 	db               *sql.DB
 	dbName           string
@@ -99,6 +106,10 @@ type workspaceModel struct {
 	activeRequestID  uint64
 	requestContext   context.Context
 	requestCancel    context.CancelFunc
+	pendingBrowse    *workspaceBrowseIntent
+	failedBrowse     *workspaceBrowseIntent
+	notice           string
+	tablesLoadFailed bool
 }
 
 func initialWorkspaceModel(database *sql.DB, dbName, connectionLabel string) workspaceModel {
@@ -145,7 +156,24 @@ func loadWorkspaceBrowse(ctx context.Context, database *sql.DB, tableName string
 	}
 }
 
-func (m *workspaceModel) startBrowse(tableName string, request db.TableBrowseRequest) tea.Cmd {
+func (m *workspaceModel) startBrowse(intent workspaceBrowseIntent) tea.Cmd {
+	if m.requestCancel != nil {
+		m.requestCancel()
+	}
+	m.nextRequestID++
+	m.activeRequestID = m.nextRequestID
+	ctx, cancel := context.WithCancel(context.Background())
+	m.requestContext = ctx
+	m.requestCancel = cancel
+	intent.cursorHistory = append([]string(nil), intent.cursorHistory...)
+	m.pendingBrowse = &intent
+	m.failedBrowse = nil
+	m.notice = ""
+	m.loading = true
+	return loadWorkspaceBrowse(ctx, m.db, intent.tableName, intent.request, m.activeRequestID)
+}
+
+func (m *workspaceModel) startTableDiscovery() tea.Cmd {
 	if m.requestCancel != nil {
 		m.requestCancel()
 	}
@@ -155,7 +183,9 @@ func (m *workspaceModel) startBrowse(tableName string, request db.TableBrowseReq
 	m.requestContext = ctx
 	m.requestCancel = cancel
 	m.loading = true
-	return loadWorkspaceBrowse(ctx, m.db, tableName, request, m.activeRequestID)
+	m.tablesLoadFailed = false
+	m.notice = ""
+	return loadWorkspaceTables(ctx, m.db, m.activeRequestID)
 }
 
 func (m *workspaceModel) finishRequest() {
@@ -175,6 +205,7 @@ func (m *workspaceModel) cancelRequest() {
 	}
 	m.activeRequestID = 0
 	m.loading = false
+	m.pendingBrowse = nil
 }
 
 func (m workspaceModel) browseRequest(cursor string, offset int) db.TableBrowseRequest {
@@ -182,6 +213,14 @@ func (m workspaceModel) browseRequest(cursor string, offset int) db.TableBrowseR
 		Limit: m.pageSize, Offset: offset, SortColumn: m.sortColumn,
 		Descending: m.sortDescending, FilterColumn: m.filterColumn,
 		FilterValue: m.filterValue, Cursor: cursor,
+	}
+}
+
+func (m workspaceModel) browseIntent(cursor string, offset int) workspaceBrowseIntent {
+	return workspaceBrowseIntent{
+		tableName:     m.selectedTable,
+		request:       m.browseRequest(cursor, offset),
+		cursorHistory: append([]string(nil), m.cursorHistory...),
 	}
 }
 
@@ -209,10 +248,12 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		if message.err != nil {
 			m.err = message.err.Error()
+			m.tablesLoadFailed = true
 			m.refreshContent()
 			return m, nil
 		}
 		m.err = ""
+		m.tablesLoadFailed = false
 		m.tables = message.tables
 		if len(m.tables) == 0 {
 			m.content.SetContent("No tables found in the public schema.")
@@ -222,12 +263,16 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if message.requestID != m.activeRequestID {
 			return m, nil
 		}
+		intent := m.pendingBrowse
 		m.finishRequest()
 		m.loading = false
 		if message.err != nil {
-			m.err = message.err.Error()
+			m.notice = "Load failed: " + message.err.Error()
+			m.failedBrowse = intent
 		} else {
 			m.err = ""
+			m.notice = ""
+			m.failedBrowse = nil
 			m.selectedTable = message.tableName
 			m.structure = message.structure
 			m.columns = message.columns
@@ -240,10 +285,20 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.sortDescending = message.sortDescending
 			m.filterColumn = message.filterColumn
 			m.filterValue = message.filterValue
+			if intent != nil {
+				m.cursorHistory = append([]string(nil), intent.cursorHistory...)
+				if intent.closeNavigator {
+					m.navigatorOpen = false
+					m.focus = workspaceFocusContent
+				}
+			}
 			m.rowCursor = 0
 			m.rowPeek = false
 		}
-		m.refreshContent()
+		m.pendingBrowse = nil
+		if message.err == nil {
+			m.refreshContent()
+		}
 		return m, nil
 	}
 
@@ -261,18 +316,20 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				value := strings.TrimSpace(m.filterInput.Value())
 				column, filter, found := strings.Cut(value, "=")
 				if value != "" && (!found || strings.TrimSpace(column) == "" || strings.TrimSpace(filter) == "") {
-					m.err = "Filter must use column=value, for example status=paid."
-					m.refreshContent()
+					m.notice = "Filter must use column=value, for example status=paid."
 					return m, nil
 				}
-				m.filterColumn, m.filterValue = strings.TrimSpace(column), strings.TrimSpace(filter)
+				filterColumn, filterValue := strings.TrimSpace(column), strings.TrimSpace(filter)
 				if value == "" {
-					m.filterColumn, m.filterValue = "", ""
+					filterColumn, filterValue = "", ""
 				}
 				m.filterEditing = false
 				m.filterInput.Blur()
-				m.cursorHistory = nil
-				return m, m.startBrowse(m.selectedTable, m.browseRequest("", 0))
+				intent := m.browseIntent("", 0)
+				intent.request.FilterColumn = filterColumn
+				intent.request.FilterValue = filterValue
+				intent.cursorHistory = nil
+				return m, m.startBrowse(intent)
 			}
 		}
 		var command tea.Cmd
@@ -334,16 +391,17 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 						break
 					}
 				}
-				m.sortColumn = m.structure[next].Name
-				m.keysetEnabled = m.structure[next].PrimaryKey && countPrimaryKeys(m.structure) == 1
-				m.cursorHistory = nil
-				return m, m.startBrowse(m.selectedTable, m.browseRequest("", 0))
+				intent := m.browseIntent("", 0)
+				intent.request.SortColumn = m.structure[next].Name
+				intent.cursorHistory = nil
+				return m, m.startBrowse(intent)
 			}
 		case "S":
 			if !m.navigatorOpen && m.selectedTable != "" {
-				m.sortDescending = !m.sortDescending
-				m.cursorHistory = nil
-				return m, m.startBrowse(m.selectedTable, m.browseRequest("", 0))
+				intent := m.browseIntent("", 0)
+				intent.request.Descending = !m.sortDescending
+				intent.cursorHistory = nil
+				return m, m.startBrowse(intent)
 			}
 		case "e":
 			editor := initialSQLEditorModel(m.db, m.dbName)
@@ -358,13 +416,12 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, editor.Init()
 		case "enter":
 			if m.navigatorOpen && len(m.tables) > 0 {
-				m.err = ""
-				m.sortColumn, m.filterColumn, m.filterValue = "", "", ""
-				m.sortDescending = false
-				m.cursorHistory = nil
-				m.navigatorOpen = false
-				m.focus = workspaceFocusContent
-				return m, m.startBrowse(m.tables[m.cursor], db.TableBrowseRequest{Limit: m.pageSize})
+				intent := workspaceBrowseIntent{
+					tableName:      m.tables[m.cursor],
+					request:        db.TableBrowseRequest{Limit: m.pageSize},
+					closeNavigator: true,
+				}
+				return m, m.startBrowse(intent)
 			}
 			if m.tab == workspaceTabData && len(m.rows) > 0 {
 				m.rowPeek = true
@@ -387,11 +444,12 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "n":
 			if !m.navigatorOpen && m.selectedTable != "" && m.hasNext {
+				intent := m.browseIntent("", m.offset+m.pageSize)
 				if m.keysetEnabled {
-					m.cursorHistory = append(m.cursorHistory, m.nextCursor)
-					return m, m.startBrowse(m.selectedTable, m.browseRequest(m.nextCursor, m.offset+m.pageSize))
+					intent.request.Cursor = m.nextCursor
+					intent.cursorHistory = append(intent.cursorHistory, m.nextCursor)
 				}
-				return m, m.startBrowse(m.selectedTable, m.browseRequest("", m.offset+m.pageSize))
+				return m, m.startBrowse(intent)
 			}
 		case "p":
 			if !m.navigatorOpen && m.selectedTable != "" && m.offset > 0 {
@@ -400,13 +458,23 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 					nextOffset = 0
 				}
 				cursor := ""
-				if m.keysetEnabled && len(m.cursorHistory) > 0 {
-					m.cursorHistory = m.cursorHistory[:len(m.cursorHistory)-1]
-					if len(m.cursorHistory) > 0 {
-						cursor = m.cursorHistory[len(m.cursorHistory)-1]
+				history := append([]string(nil), m.cursorHistory...)
+				if m.keysetEnabled && len(history) > 0 {
+					history = history[:len(history)-1]
+					if len(history) > 0 {
+						cursor = history[len(history)-1]
 					}
 				}
-				return m, m.startBrowse(m.selectedTable, m.browseRequest(cursor, nextOffset))
+				intent := m.browseIntent(cursor, nextOffset)
+				intent.cursorHistory = history
+				return m, m.startBrowse(intent)
+			}
+		case "r":
+			if m.failedBrowse != nil {
+				return m, m.startBrowse(*m.failedBrowse)
+			}
+			if m.tablesLoadFailed {
+				return m, m.startTableDiscovery()
 			}
 		case "up", "k":
 			if m.navigatorOpen {
@@ -805,7 +873,16 @@ func (m workspaceModel) View() string {
 				explorerContent += prefix + style.Render(tableName) + "\n"
 			}
 		}
+		if m.pendingBrowse != nil {
+			explorerContent += "\n" + muted.Render("Opening "+m.pendingBrowse.tableName+"…") + "\n"
+		}
+		if m.notice != "" {
+			explorerContent += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(m.notice) + "\n"
+		}
 		footer := muted.Render("↑/↓ select • Enter open • b close • c connections • q quit")
+		if m.failedBrowse != nil || m.tablesLoadFailed {
+			footer = muted.Render("r retry • ↑/↓ select • Enter open • b close • c connections • q quit")
+		}
 		return top + "\n" + separator + "\n\n" + explorerContent + "\n" + footer
 	}
 
@@ -834,15 +911,20 @@ func (m workspaceModel) View() string {
 		contentBody += muted.Render(toolbar) + "\n" + separator + "\n"
 	}
 	contentBody += "\n"
-	if m.loading && m.selectedTable != "" {
-		contentBody += muted.Render("Loading " + m.selectedTable + "…")
-	} else {
-		contentBody += m.content.View()
+	if m.loading && m.pendingBrowse != nil {
+		contentBody += muted.Render("Loading "+m.pendingBrowse.tableName+"…") + "\n"
 	}
+	if m.notice != "" {
+		contentBody += lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(m.notice) + "\n"
+	}
+	contentBody += m.content.View()
 
 	footerText := "↑/↓ row • Enter peek • / filter • s column • S direction • n/p page • b tables • e query • q quit"
 	if m.width > 0 && m.width < 90 {
 		footerText = "↑/↓ row • Enter peek • / filter • s sort • n/p page • b tables • q quit"
+	}
+	if m.failedBrowse != nil {
+		footerText = "r retry • " + footerText
 	}
 	footer := muted.Render(footerText)
 	return top + "\n" + separator + "\n" + contentBody + "\n" + footer

@@ -67,7 +67,7 @@ These are completion gates, not calendar promises or predetermined version numbe
 Goal: predictable interaction before adding more controls.
 
 - [x] **M0.1 Request lifecycle:** attach IDs and cancellation to asynchronous loads; ignore stale responses. Handle results even when an editor or input prompt is open.
-- [ ] **M0.2 Navigation state:** commit the selected table, filter, sort, page, and cursor history only after a successful load. Preserve the previous successful view on failure; support retry.
+- [x] **M0.2 Navigation state:** commit the selected table, filter, sort, page, and cursor history only after a successful load. Preserve the previous successful view on failure; support retry.
 - [ ] **M0.3 Context and deadlines:** pass a caller context through connection/metadata/data work; cancel pending work on disconnect or replacement. Keep the event loop responsive.
 - [ ] **M0.4 Terminal sizing:** account for the complete header/toolbar/footer height; handle resize in every mode. Support an 80×24 terminal and provide an explicit message for unsupported sizes.
 - [ ] **M0.5 Row peek:** preserve its existing layout; wrap long and multiline values, support independent scrolling, and return to the same selected row and grid position.
@@ -203,9 +203,9 @@ Do not start these unless recurring user feedback justifies changing the roadmap
 
 ## Current work
 
-- **Status:** M0.1 complete; Phase 0 is in progress.
-- **Next item:** M0.2 — commit navigation state only after successful loads and preserve the last successful view on failure.
-- **Following items:** M0.3 deadlines/cancellation; M0.4 terminal sizing; M0.5 simple row-peek scrolling; M0.6 cleanup; M0.7 help.
+- **Status:** M0.1 and M0.2 complete; Phase 0 is in progress.
+- **Next item:** M0.3 — apply consistent deadlines and cancellation across connection, metadata, browsing, and SQL execution work.
+- **Following items:** M0.4 terminal sizing; M0.5 simple row-peek scrolling; M0.6 cleanup; M0.7 help.
 - **First milestone:** reliable browsing foundation (Phases 0–1).
 - **Planning-only change:** this document does not implement the features above or authorize external releases, telemetry, or database writes.
 
@@ -215,3 +215,4 @@ Do not start these unless recurring user feedback justifies changing the roadmap
 | --- | --- | --- |
 | 2026-09-10 | Roadmap | Reviewed current code and captured the agreed UI, known gaps, implementation sequence, and release gates. No runtime changes. |
 | 2026-09-10 | M0.1 | Added request IDs and cancellation contexts for table discovery and browsing, ignored stale/duplicate responses, handled results during editor/filter states, and verified cancellation with race and PostgreSQL integration tests. |
+| 2026-09-10 | M0.2 | Staged table, filter, sort, page, and cursor changes until successful responses; retained the last successful data after errors; added retry with `r`; verified failure and retry state with unit, race, and PostgreSQL integration tests. |
