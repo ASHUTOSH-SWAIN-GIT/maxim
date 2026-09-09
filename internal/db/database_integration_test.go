@@ -215,6 +215,17 @@ func TestIntegrationExecuteQuery(t *testing.T) {
 	}
 }
 
+func TestIntegrationQueryHonorsCancellation(t *testing.T) {
+	database, _ := openIntegrationDatabase(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result := ExecuteQueryContext(ctx, database, "SELECT pg_sleep(10)")
+	if result.Success || !strings.Contains(strings.ToLower(result.Error), "cancel") {
+		t.Fatalf("cancelled query returned %#v", result)
+	}
+}
+
 func TestIntegrationMutationsAndPostgresDataTypes(t *testing.T) {
 	database, _ := openIntegrationDatabase(t)
 	tableName := uniqueDatabaseObject("types")

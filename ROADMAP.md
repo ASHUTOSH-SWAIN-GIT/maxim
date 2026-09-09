@@ -34,8 +34,8 @@ Based on repository inspection, not a new test or performance run:
 | Workspace | Table navigator, Data/Structure, simple row peek, SQL editor shortcut | Responsive layout, consistent view navigation, request isolation, help |
 | Browsing | Bounded pages, equality filter, sort cycling | More filter types, predictable errors, wider-table navigation |
 | Pagination | Single-primary-key keyset path; offset fallback | Typed cursors, compound keys, stable tie-breaking, concurrency semantics |
-| Timeout | Ten-second timeout for the browsing data query | Metadata, connect, and editor operations need consistent deadlines/cancellation |
-| SQL | Autocomplete, execution, first 100 result rows displayed | Async execution, retained drafts, reliable SQL parsing, clear truncation/affected-row reporting |
+| Timeout | Shared deadlines for connection, metadata, browsing, and SQL; cancellation in workspace/editor | Reconnect behavior and cancellation coverage for future operations |
+| SQL | Async execution, cancellation, autocomplete, first 100 result rows displayed | Retained drafts, reliable SQL parsing, clear truncation/affected-row reporting |
 | Structure | Column type, nullability, default, primary-key indicator for public tables | Multiple schemas, foreign keys, indexes, constraints, comments |
 | Delivery | Unit/race tests, PostgreSQL and Docker integration, platform CI, release workflow | Edge-case fixtures, interaction tests, benchmarks, release smoke tests |
 
@@ -45,7 +45,7 @@ Known code issues to address first:
 - `internal/db/browser.go` derives the cursor from a displayed string. Float formatting and timestamp formatting must never determine database cursor identity.
 - Offset fallback does not guarantee a unique order for tables without a single-column primary key. It can also shift under concurrent writes.
 - Metadata lookup assumes `public`, but data queries use an unqualified table name. Schema resolution must be consistent.
-- `internal/tui/sqlEditor.go` executes SQL synchronously; its statement splitter understands only basic single-quoted strings.
+- `internal/tui/sqlEditor.go` has a statement splitter that understands only basic single-quoted strings.
 - `internal/db/query_executor.go` stops displaying results at 100 rows, but this is not a database-work limit or a cancellation mechanism.
 - Values are flattened to strings, including the same visible representation for SQL NULL and text containing `NULL`.
 - The reverted inspector still has unused helper functions in `workspace.go`. Remove that dead code while retaining the accepted row peek.
@@ -68,7 +68,7 @@ Goal: predictable interaction before adding more controls.
 
 - [x] **M0.1 Request lifecycle:** attach IDs and cancellation to asynchronous loads; ignore stale responses. Handle results even when an editor or input prompt is open.
 - [x] **M0.2 Navigation state:** commit the selected table, filter, sort, page, and cursor history only after a successful load. Preserve the previous successful view on failure; support retry.
-- [ ] **M0.3 Context and deadlines:** pass a caller context through connection/metadata/data work; cancel pending work on disconnect or replacement. Keep the event loop responsive.
+- [x] **M0.3 Context and deadlines:** pass a caller context through connection/metadata/data work; cancel pending work on disconnect or replacement. Keep the event loop responsive.
 - [ ] **M0.4 Terminal sizing:** account for the complete header/toolbar/footer height; handle resize in every mode. Support an 80×24 terminal and provide an explicit message for unsupported sizes.
 - [ ] **M0.5 Row peek:** preserve its existing layout; wrap long and multiline values, support independent scrolling, and return to the same selected row and grid position.
 - [ ] **M0.6 State cleanup:** remove unused inspector helpers, redundant metadata loads, and obsolete model fields once callers are verified. Retain functioning legacy paths until replacement tests pass.
@@ -203,9 +203,9 @@ Do not start these unless recurring user feedback justifies changing the roadmap
 
 ## Current work
 
-- **Status:** M0.1 and M0.2 complete; Phase 0 is in progress.
-- **Next item:** M0.3 — apply consistent deadlines and cancellation across connection, metadata, browsing, and SQL execution work.
-- **Following items:** M0.4 terminal sizing; M0.5 simple row-peek scrolling; M0.6 cleanup; M0.7 help.
+- **Status:** M0.1–M0.3 complete; Phase 0 is in progress.
+- **Next item:** M0.4 — make every mode resize safely and support an 80×24 terminal with a clear minimum-size state.
+- **Following items:** M0.5 simple row-peek scrolling; M0.6 cleanup; M0.7 help.
 - **First milestone:** reliable browsing foundation (Phases 0–1).
 - **Planning-only change:** this document does not implement the features above or authorize external releases, telemetry, or database writes.
 
@@ -216,3 +216,4 @@ Do not start these unless recurring user feedback justifies changing the roadmap
 | 2026-09-10 | Roadmap | Reviewed current code and captured the agreed UI, known gaps, implementation sequence, and release gates. No runtime changes. |
 | 2026-09-10 | M0.1 | Added request IDs and cancellation contexts for table discovery and browsing, ignored stale/duplicate responses, handled results during editor/filter states, and verified cancellation with race and PostgreSQL integration tests. |
 | 2026-09-10 | M0.2 | Staged table, filter, sort, page, and cursor changes until successful responses; retained the last successful data after errors; added retry with `r`; verified failure and retry state with unit, race, and PostgreSQL integration tests. |
+| 2026-09-10 | M0.3 | Added shared connection, metadata, browse, and query deadlines; moved SQL execution and autocomplete loading off the event loop; added query replacement/stale-result isolation and `Ctrl+X` cancellation; verified with unit, race, vet, and disposable PostgreSQL integration tests. |

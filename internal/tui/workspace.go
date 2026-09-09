@@ -411,7 +411,7 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				updated, command := editor.Update(tea.WindowSizeMsg{Width: m.width, Height: max(m.height-4, 8)})
 				editor = updated.(sqlEditorModel)
 				m.editor = &editor
-				return m, command
+				return m, tea.Batch(command, editor.Init())
 			}
 			return m, editor.Init()
 		case "enter":
@@ -514,9 +514,11 @@ func (m workspaceModel) updateEditor(message tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := message.(tea.KeyMsg); ok {
 		if key.Type == tea.KeyCtrlC {
 			m.cancelRequest()
+			m.editor.cancelOperations()
 			return m, tea.Quit
 		}
 		if key.Type == tea.KeyEsc {
+			m.editor.cancelOperations()
 			m.mode = workspaceModeBrowse
 			m.editor.quitting = false
 			return m, nil
@@ -852,7 +854,7 @@ func (m workspaceModel) View() string {
 	separator := muted.Render(strings.Repeat("─", separatorWidth))
 
 	if m.mode == workspaceModeEditor && m.editor != nil {
-		footer := muted.Render("Esc workspace • Ctrl+A run • Ctrl+R clear")
+		footer := muted.Render("Esc workspace • Ctrl+A run • Ctrl+X cancel • Ctrl+R clear")
 		return top + "\n" + separator + "\n" + header.Render("Query") + "\n" + m.editor.View() + "\n" + footer
 	}
 

@@ -5,13 +5,10 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/lib/pq"
 )
-
-const tableBrowseTimeout = 10 * time.Second
 
 type TableBrowseRequest struct {
 	Limit        int
@@ -40,7 +37,7 @@ func BrowseTable(database *sql.DB, tableName string, request TableBrowseRequest)
 }
 
 func BrowseTableContext(parent context.Context, database *sql.DB, tableName string, request TableBrowseRequest) (TableBrowsePage, error) {
-	ctx, cancel := context.WithTimeout(parent, tableBrowseTimeout)
+	ctx, cancel := context.WithTimeout(parent, BrowseTimeout)
 	defer cancel()
 
 	structure, err := GetTableStructureContext(ctx, database, tableName)

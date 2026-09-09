@@ -39,16 +39,27 @@ var supportedSSLModes = map[string]bool{
 }
 
 func ConnectAndVerify(dbType, user, password, host, port, dbname string) (*sql.DB, error) {
+	return ConnectAndVerifyContext(context.Background(), dbType, user, password, host, port, dbname)
+}
+
+func ConnectAndVerifyContext(ctx context.Context, dbType, user, password, host, port, dbname string) (*sql.DB, error) {
 	if dbType != "psql" {
 		return nil, fmt.Errorf("unsupported database type: %s", dbType)
 	}
-	return ConnectPostgres(ConnectionOptions{
+	return ConnectPostgresContext(ctx, ConnectionOptions{
 		User: user, Password: password, Host: host, Port: port,
 		Database: dbname, SSLMode: "disable",
 	})
 }
 
 func ConnectPostgres(options ConnectionOptions) (*sql.DB, error) {
+	return ConnectPostgresContext(context.Background(), options)
+}
+
+func ConnectPostgresContext(parent context.Context, options ConnectionOptions) (*sql.DB, error) {
+	ctx, cancel := context.WithTimeout(parent, ConnectionTimeout)
+	defer cancel()
+
 	dsn, err := postgresDSN(options)
 	if err != nil {
 		return nil, err
@@ -59,7 +70,7 @@ func ConnectPostgres(options ConnectionOptions) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to open database connection: %w", err)
 	}
 
-	if err = db.Ping(); err != nil {
+	if err = db.PingContext(ctx); err != nil {
 		db.Close()
 		// Parse the most common PostgreSQL errors while preserving useful detail
 		// for TLS, DNS, and other connection failures.
@@ -104,15 +115,21 @@ func postgresDSN(options ConnectionOptions) (string, error) {
 	}
 	query := connectionURL.Query()
 	query.Set("sslmode", options.SSLMode)
-	query.Set("connect_timeout", "10")
+	query.Set("connect_timeout", fmt.Sprintf("%.0f", ConnectionTimeout.Seconds()))
 	connectionURL.RawQuery = query.Encode()
 	return connectionURL.String(), nil
 }
 
 func ListDatabases(db *sql.DB) ([]string, error) {
+	return ListDatabasesContext(context.Background(), db)
+}
+
+func ListDatabasesContext(parent context.Context, db *sql.DB) ([]string, error) {
+	ctx, cancel := context.WithTimeout(parent, MetadataTimeout)
+	defer cancel()
 	query := "SELECT datname FROM pg_database WHERE datistemplate = false;"
 
-	rows, err := db.Query(query)
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -135,6 +152,8 @@ func GetTables(db *sql.DB) ([]string, error) {
 }
 
 func GetTablesContext(ctx context.Context, db *sql.DB) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, MetadataTimeout)
+	defer cancel()
 	query := "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public';"
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
@@ -335,6 +354,12 @@ func DeleteDatabase(adminDB *sql.DB, dbType, dbName string) error {
 
 // GetAllColumns returns all column names from all tables in the database
 func GetAllColumns(db *sql.DB) ([]string, error) {
+	return GetAllColumnsContext(context.Background(), db)
+}
+
+func GetAllColumnsContext(parent context.Context, db *sql.DB) ([]string, error) {
+	ctx, cancel := context.WithTimeout(parent, MetadataTimeout)
+	defer cancel()
 	query := `
 		SELECT DISTINCT column_name 
 		FROM information_schema.columns 
@@ -342,7 +367,7 @@ func GetAllColumns(db *sql.DB) ([]string, error) {
 		ORDER BY column_name
 	`
 
-	rows, err := db.Query(query)
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -362,6 +387,12 @@ func GetAllColumns(db *sql.DB) ([]string, error) {
 
 // GetAllTables returns all table names from the database
 func GetAllTables(db *sql.DB) ([]string, error) {
+	return GetAllTablesContext(context.Background(), db)
+}
+
+func GetAllTablesContext(parent context.Context, db *sql.DB) ([]string, error) {
+	ctx, cancel := context.WithTimeout(parent, MetadataTimeout)
+	defer cancel()
 	query := `
 		SELECT table_name 
 		FROM information_schema.tables 
@@ -369,7 +400,7 @@ func GetAllTables(db *sql.DB) ([]string, error) {
 		ORDER BY table_name
 	`
 
-	rows, err := db.Query(query)
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -393,6 +424,8 @@ func GetTableStructure(db *sql.DB, tableName string) ([]TableColumnInfo, error) 
 }
 
 func GetTableStructureContext(ctx context.Context, db *sql.DB, tableName string) ([]TableColumnInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, MetadataTimeout)
+	defer cancel()
 	const query = `
 		SELECT c.column_name,
 		       c.data_type,

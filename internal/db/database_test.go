@@ -1,7 +1,9 @@
 package db
 
 import (
+	"context"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -26,6 +28,15 @@ func TestPostgresDSNEscapesCredentialsAndEnablesSSL(t *testing.T) {
 	}
 	if parsed.Query().Get("connect_timeout") != "10" {
 		t.Fatalf("connection timeout missing from DSN: %s", dsn)
+	}
+}
+
+func TestQueryContextErrorsHaveClearMessages(t *testing.T) {
+	if got := formatQueryError(context.Canceled); got != "Query cancelled." {
+		t.Fatalf("cancel message = %q", got)
+	}
+	if got := formatQueryError(context.DeadlineExceeded); !strings.Contains(got, QueryTimeout.String()) {
+		t.Fatalf("timeout message does not name deadline: %q", got)
 	}
 }
 

@@ -1,7 +1,9 @@
 package db
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -18,6 +20,13 @@ type QueryResult struct {
 
 // ExecuteQuery executes a SQL query and returns formatted results
 func ExecuteQuery(db *sql.DB, query string) QueryResult {
+	return ExecuteQueryContext(context.Background(), db, query)
+}
+
+func ExecuteQueryContext(parent context.Context, db *sql.DB, query string) QueryResult {
+	ctx, cancel := context.WithTimeout(parent, QueryTimeout)
+	defer cancel()
+
 	// Validate input
 	trimmedQuery := strings.TrimSpace(query)
 	if trimmedQuery == "" {
@@ -28,7 +37,7 @@ func ExecuteQuery(db *sql.DB, query string) QueryResult {
 	}
 
 	// Execute the query
-	rows, err := db.Query(query)
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return QueryResult{
 			Success: false,
@@ -173,7 +182,7 @@ func ExecuteQuery(db *sql.DB, query string) QueryResult {
 	if err := rows.Err(); err != nil {
 		return QueryResult{
 			Success: false,
-			Error:   fmt.Sprintf("Error iterating rows:\n%s", err.Error()),
+			Error:   formatQueryError(err),
 		}
 	}
 
@@ -188,6 +197,12 @@ func ExecuteQuery(db *sql.DB, query string) QueryResult {
 
 // formatQueryError formats database errors with better readability
 func formatQueryError(err error) string {
+	if errors.Is(err, context.Canceled) {
+		return "Query cancelled."
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Sprintf("Query timed out after %s.", QueryTimeout)
+	}
 	// Handle PostgreSQL specific errors
 	if pqErr, ok := err.(*pq.Error); ok {
 		return pqErr.Message

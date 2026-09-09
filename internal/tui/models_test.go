@@ -187,6 +187,56 @@ func TestSplitSQLStatements(t *testing.T) {
 	}
 }
 
+func TestSQLEditorRunsQueriesAsynchronouslyAndIgnoresStaleResults(t *testing.T) {
+	model := initialSQLEditorModel(nil, "app")
+	defer model.cancelOperations()
+	model.textarea.SetValue("SELECT 1")
+
+	updated, command := model.Update(key(tea.KeyCtrlA))
+	model = updated.(sqlEditorModel)
+	if command == nil || !model.queryRunning || model.activeQueryID == 0 {
+		t.Fatalf("query did not start asynchronously: %#v", model)
+	}
+	if model.textarea.Value() != "SELECT 1" {
+		t.Fatal("query draft was cleared before execution completed")
+	}
+
+	activeID := model.activeQueryID
+	updated, _ = model.Update(sqlEditorQueryFinishedMsg{requestID: activeID + 1, results: "stale"})
+	model = updated.(sqlEditorModel)
+	if !model.queryRunning || model.results == "stale" {
+		t.Fatal("stale query result changed editor state")
+	}
+
+	updated, _ = model.Update(sqlEditorQueryFinishedMsg{requestID: activeID, results: "done"})
+	model = updated.(sqlEditorModel)
+	if model.queryRunning || model.results != "done" || model.textarea.Value() != "" {
+		t.Fatalf("current query result was not committed: %#v", model)
+	}
+}
+
+func TestSQLEditorCancelsRunningQueryAndLoadsAutocomplete(t *testing.T) {
+	model := initialSQLEditorModel(nil, "app")
+	defer model.cancelOperations()
+	updated, _ := model.Update(sqlEditorSchemaLoadedMsg{
+		columns: []string{"customer_id"},
+		tables:  []string{"customers"},
+	})
+	model = updated.(sqlEditorModel)
+	if suggestions := model.queryCache.GetSuggestions("cust"); !slices.Contains(suggestions, "customer_id") || !slices.Contains(suggestions, "customers") {
+		t.Fatalf("schema was not added to autocomplete: %v", suggestions)
+	}
+
+	model.textarea.SetValue("SELECT pg_sleep(10)")
+	updated, _ = model.Update(key(tea.KeyCtrlA))
+	model = updated.(sqlEditorModel)
+	updated, _ = model.Update(key(tea.KeyCtrlX))
+	model = updated.(sqlEditorModel)
+	if model.queryRunning || model.activeQueryID != 0 || model.results != "Query cancelled." {
+		t.Fatalf("query cancellation was not reflected in the editor: %#v", model)
+	}
+}
+
 func TestConnectionManagerActions(t *testing.T) {
 	tests := []struct {
 		name       string

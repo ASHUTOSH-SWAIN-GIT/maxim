@@ -253,10 +253,14 @@ The SQL Editor provides a split-panel interface:
 
 **Keyboard Shortcuts:**
 - `Ctrl+A` - Execute all queries
+- `Ctrl+X` - Cancel the running query
 - `Ctrl+R` - Clear results
 - `Tab` - Cycle through autocomplete suggestions
 - `Enter` - Select highlighted suggestion
 - `Esc` - Return to the database workspace
+
+Connection and metadata operations time out after 10 seconds. SQL queries time
+out after 30 seconds and run without blocking workspace input.
 
 ### Viewing Table Data
 

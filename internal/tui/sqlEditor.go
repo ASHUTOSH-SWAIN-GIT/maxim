@@ -1,8 +1,8 @@
 package tui
 
 import (
+	"context"
 	"database/sql"
-	"fmt"
 	"strings"
 
 	"github.com/ASHUTOSH-SWAIN-GIT/maxim/internal/db"
@@ -11,6 +11,17 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+type sqlEditorSchemaLoadedMsg struct {
+	columns []string
+	tables  []string
+}
+
+type sqlEditorQueryFinishedMsg struct {
+	requestID uint64
+	results   string
+	hadError  bool
+}
 
 type sqlEditorModel struct {
 	textarea        textarea.Model
@@ -26,6 +37,12 @@ type sqlEditorModel struct {
 	selectedIndex   int
 	showSuggestions bool
 	justSelected    bool
+	queryRunning    bool
+	nextQueryID     uint64
+	activeQueryID   uint64
+	queryCancel     context.CancelFunc
+	schemaContext   context.Context
+	schemaCancel    context.CancelFunc
 }
 
 func initialSQLEditorModel(conn *sql.DB, dbName string) sqlEditorModel {
@@ -45,6 +62,7 @@ func initialSQLEditorModel(conn *sql.DB, dbName string) sqlEditorModel {
 		"• Press Tab to cycle through suggestions\n" +
 		"• Press Enter to select highlighted suggestion\n" +
 		"• Press Ctrl+A to run all queries\n" +
+		"• Press Ctrl+X to cancel a running query\n" +
 		"• Press Ctrl+R to clear results\n" +
 		"• Press Esc to return to the workspace\n\n" +
 		"Example queries:\n" +
@@ -52,19 +70,8 @@ func initialSQLEditorModel(conn *sql.DB, dbName string) sqlEditorModel {
 		"INSERT INTO users (name) VALUES ('John');\n" +
 		"UPDATE users SET name = 'Jane' WHERE id = 1;")
 
-	// Create query cache and cache columns
 	queryCache := NewQueryCache()
-
-	// Cache all columns and tables from the database for autocomplete
-	columns, err := db.GetAllColumns(conn)
-	if err == nil && len(columns) > 0 {
-		queryCache.CacheColumns(columns)
-	}
-
-	tables, err := db.GetAllTables(conn)
-	if err == nil && len(tables) > 0 {
-		queryCache.CacheTables(tables)
-	}
+	schemaContext, schemaCancel := context.WithTimeout(context.Background(), db.MetadataTimeout)
 
 	return sqlEditorModel{
 		textarea:        ta,
@@ -76,11 +83,62 @@ func initialSQLEditorModel(conn *sql.DB, dbName string) sqlEditorModel {
 		selectedIndex:   0,
 		showSuggestions: false,
 		justSelected:    false,
+		schemaContext:   schemaContext,
+		schemaCancel:    schemaCancel,
 	}
 }
 
 func (m sqlEditorModel) Init() tea.Cmd {
-	return textarea.Blink
+	return tea.Batch(textarea.Blink, loadSQLEditorSchema(m.schemaContext, m.db))
+}
+
+func loadSQLEditorSchema(ctx context.Context, conn *sql.DB) tea.Cmd {
+	return func() tea.Msg {
+		columns, _ := db.GetAllColumnsContext(ctx, conn)
+		tables, _ := db.GetAllTablesContext(ctx, conn)
+		return sqlEditorSchemaLoadedMsg{columns: columns, tables: tables}
+	}
+}
+
+func executeSQLBatch(ctx context.Context, conn *sql.DB, content string, requestID uint64) tea.Cmd {
+	return func() tea.Msg {
+		var combined strings.Builder
+		hadError := false
+		for _, statement := range splitSQLStatements(content) {
+			statement = strings.TrimSpace(statement)
+			if statement == "" {
+				continue
+			}
+			result := db.ExecuteQueryContext(ctx, conn, statement)
+			if combined.Len() > 0 {
+				combined.WriteString("\n\n")
+			}
+			if result.Success {
+				combined.WriteString(result.Data)
+			} else {
+				hadError = true
+				combined.WriteString(result.Error)
+				break
+			}
+		}
+		if combined.Len() == 0 {
+			combined.WriteString("No statements to execute.")
+		}
+		return sqlEditorQueryFinishedMsg{requestID: requestID, results: combined.String(), hadError: hadError}
+	}
+}
+
+func (m *sqlEditorModel) cancelOperations() {
+	if m.queryCancel != nil {
+		m.queryCancel()
+		m.queryCancel = nil
+	}
+	if m.schemaCancel != nil {
+		m.schemaCancel()
+		m.schemaCancel = nil
+	}
+	m.queryRunning = false
+	m.activeQueryID = 0
 }
 
 func (m sqlEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -90,6 +148,28 @@ func (m sqlEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	)
 
 	switch msg := msg.(type) {
+	case sqlEditorSchemaLoadedMsg:
+		m.queryCache.CacheColumns(msg.columns)
+		m.queryCache.CacheTables(msg.tables)
+		return m, nil
+
+	case sqlEditorQueryFinishedMsg:
+		if msg.requestID != m.activeQueryID {
+			return m, nil
+		}
+		m.queryRunning = false
+		m.activeQueryID = 0
+		m.queryCancel = nil
+		m.results = msg.results
+		if msg.hadError {
+			m.error = msg.results
+		} else {
+			m.error = ""
+		}
+		m.viewport.SetContent(msg.results)
+		m.textarea.SetValue("")
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		// Account for both panels' borders and horizontal padding so the editor
 		// never wraps beyond the terminal edge.
@@ -104,57 +184,58 @@ func (m sqlEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyCtrlC:
+			m.cancelOperations()
 			m.quitting = true
 			return m, tea.Quit
 		case tea.KeyEsc:
+			m.cancelOperations()
 			m.quitting = true
 			return m, tea.Quit
+		case tea.KeyCtrlX:
+			if m.queryRunning {
+				if m.queryCancel != nil {
+					m.queryCancel()
+				}
+				m.queryRunning = false
+				m.activeQueryID = 0
+				m.queryCancel = nil
+				m.results = "Query cancelled."
+				m.error = m.results
+				m.viewport.SetContent(m.results)
+			}
+			return m, nil
 		case tea.KeyCtrlR:
-			// Clear results
+			if m.queryCancel != nil {
+				m.queryCancel()
+			}
+			m.queryRunning = false
+			m.activeQueryID = 0
+			m.queryCancel = nil
 			m.results = ""
 			m.error = ""
 			m.viewport.SetContent("Results cleared.\n\n" +
 				"Ready for a new query. Type your SQL in the left panel and press Ctrl+A to run all.")
 			return m, nil
 		case tea.KeyCtrlA:
-			// Execute all statements in the textarea
 			content := m.textarea.Value()
-			statements := splitSQLStatements(content)
-			var combinedResults strings.Builder
-			var hadError bool
-			for _, stmt := range statements {
-				trimmed := strings.TrimSpace(stmt)
-				if trimmed == "" {
-					continue
-				}
-				res := db.ExecuteQuery(m.db, trimmed)
-				if res.Success {
-					if combinedResults.Len() > 0 {
-						combinedResults.WriteString("\n\n")
-					}
-					combinedResults.WriteString(res.Data)
-				} else {
-					hadError = true
-					if combinedResults.Len() > 0 {
-						combinedResults.WriteString("\n\n")
-					}
-					combinedResults.WriteString(res.Error)
-				}
-			}
-			if combinedResults.Len() == 0 {
+			if strings.TrimSpace(content) == "" {
 				m.results = "No statements to execute."
-			} else {
-				m.results = combinedResults.String()
-			}
-			if hadError {
-				m.error = m.results
-			} else {
 				m.error = ""
+				m.viewport.SetContent(m.results)
+				return m, nil
 			}
-			m.viewport.SetContent(m.results)
-			// Clear the textarea after execution
-			m.textarea.SetValue("")
-			return m, nil
+			if m.queryCancel != nil {
+				m.queryCancel()
+			}
+			m.nextQueryID++
+			m.activeQueryID = m.nextQueryID
+			ctx, cancel := context.WithCancel(context.Background())
+			m.queryCancel = cancel
+			m.queryRunning = true
+			m.error = ""
+			m.viewport.SetContent("Running query…\n\nPress Ctrl+X to cancel.")
+			m.queryCache.AddCommand(content)
+			return m, executeSQLBatch(ctx, m.db, content, m.activeQueryID)
 		case tea.KeyTab:
 			// Cycle through suggestions
 			if m.showSuggestions && len(m.suggestions) > 0 {
@@ -210,6 +291,7 @@ func (m sqlEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						"• Press Tab to cycle through suggestions\n" +
 						"• Press Enter to select highlighted suggestion\n" +
 						"• Press Ctrl+A to run all queries\n" +
+						"• Press Ctrl+X to cancel a running query\n" +
 						"• Press Ctrl+R to clear results\n" +
 						"• Press Esc to return to the workspace\n\n" +
 						"Example queries:\n" +
@@ -289,30 +371,6 @@ func (m *sqlEditorModel) suggestionsEqual(a, b []string) bool {
 		}
 	}
 	return true
-}
-
-func (m *sqlEditorModel) executeQuery(query string) {
-	// Clear previous results
-	m.results = ""
-	m.error = ""
-
-	// Add the query to cache for future suggestions
-	m.queryCache.AddCommand(query)
-
-	// Execute the query using the separated database logic
-	result := db.ExecuteQuery(m.db, query)
-
-	if result.Success {
-		m.results = result.Data
-		m.viewport.SetContent(m.results)
-		// Clear the textarea after successful execution
-		m.textarea.SetValue("")
-	} else {
-		m.error = result.Error
-		// Format error with better styling and add clear instruction
-		formattedError := fmt.Sprintf("%s\n\nPress Ctrl+R to clear this error", result.Error)
-		m.viewport.SetContent(formattedError)
-	}
 }
 
 // splitSQLStatements splits SQL text into statements by semicolons while
