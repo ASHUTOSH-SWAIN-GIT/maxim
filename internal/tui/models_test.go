@@ -22,6 +22,14 @@ func key(keyType tea.KeyType) tea.KeyMsg {
 	return tea.KeyMsg{Type: keyType}
 }
 
+func testDataRow(values ...string) db.DataRow {
+	row := make(db.DataRow, len(values))
+	for index, value := range values {
+		row[index] = db.CellValue{Raw: value, DatabaseTypeName: "TEXT", Text: value}
+	}
+	return row
+}
+
 func TestMainMenuNavigationAndSelection(t *testing.T) {
 	model := initialMainMenuModel()
 	updated, _ := model.Update(key(tea.KeyDown))
@@ -355,7 +363,7 @@ func TestWorkspaceNavigationAndTableContent(t *testing.T) {
 		tableName: "orders",
 		structure: []db.TableColumnInfo{{Name: "id", DataType: "bigint", PrimaryKey: true}},
 		columns:   []table.Column{{Title: "id"}, {Title: "status"}},
-		rows:      []table.Row{{"1", "paid"}},
+		rows:      []db.DataRow{testDataRow("1", "paid")},
 	}
 	updated, _ = model.Update(loaded)
 	model = updated.(workspaceModel)
@@ -415,7 +423,7 @@ func TestWorkspaceSupportsEightyByTwentyFourAndSmallTerminalFallback(t *testing.
 	model.selectedTable = "orders"
 	model.structure = []db.TableColumnInfo{{Name: "id", PrimaryKey: true}, {Name: "status"}}
 	model.columns = []table.Column{{Title: "id"}, {Title: "status"}}
-	model.rows = []table.Row{{"1", "paid"}, {"2", "shipped"}}
+	model.rows = []db.DataRow{testDataRow("1", "paid"), testDataRow("2", "shipped")}
 	model.refreshContent()
 	assertViewFits(t, model.View(), 80, 24)
 	model.tab = workspaceTabStructure
@@ -469,12 +477,12 @@ func TestWorkspaceRowPeekWrapsScrollsAndRestoresGridPosition(t *testing.T) {
 		model.columns = append(model.columns, table.Column{Title: fmt.Sprintf("long_column_%02d", index)})
 	}
 	longValue := strings.Repeat("a wide unicode value 世界 ", 6) + "\nsecond database line"
-	row := make(table.Row, len(model.columns))
+	row := make(db.DataRow, len(model.columns))
 	for index := range row {
-		row[index] = longValue
+		row[index] = db.CellValue{Raw: longValue, DatabaseTypeName: "TEXT", Text: longValue}
 	}
 	for index := 0; index < 30; index++ {
-		model.rows = append(model.rows, append(table.Row(nil), row...))
+		model.rows = append(model.rows, append(db.DataRow(nil), row...))
 	}
 	model.rowCursor = 10
 	model.refreshContent()
@@ -516,6 +524,23 @@ func TestWorkspaceRowPeekWrapsScrollsAndRestoresGridPosition(t *testing.T) {
 	}
 }
 
+func TestWorkspaceRendersTypedValuesSafely(t *testing.T) {
+	columns := []table.Column{{Title: "missing"}, {Title: "literal"}, {Title: "message"}}
+	row := db.DataRow{
+		{DatabaseTypeName: "TEXT", IsNull: true},
+		{Raw: "NULL", DatabaseTypeName: "TEXT", Text: "NULL"},
+		{Raw: "hello\x1b[31m\nworld", DatabaseTypeName: "TEXT", Text: "hello\x1b[31m\nworld"},
+	}
+	grid := renderWorkspaceRows("events", columns, []db.DataRow{row}, 0, 100, 0)
+	if !strings.Contains(grid, `"NULL"`) || strings.Contains(grid, "\x1b[31m") || !strings.Contains(grid, `\n`) {
+		t.Fatalf("grid did not distinguish and sanitize typed values: %q", grid)
+	}
+	peek := renderWorkspaceRowPeek("events", columns, row, 1, 80)
+	if !strings.Contains(peek, "SQL NULL") || !strings.Contains(peek, `"NULL"`) || strings.Contains(peek, "\x1b[31m") || !strings.Contains(peek, "world") {
+		t.Fatalf("row peek did not distinguish and sanitize typed values: %q", peek)
+	}
+}
+
 func assertViewFits(t *testing.T, view string, width, height int) {
 	t.Helper()
 	if got := lipgloss.Width(view); got > width {
@@ -546,7 +571,7 @@ func TestWorkspaceFilterAndSortControls(t *testing.T) {
 	}
 	updated, _ = model.Update(workspaceTableLoadedMsg{
 		requestID: 2, tableName: "orders", structure: model.structure,
-		columns: []table.Column{{Title: "id"}, {Title: "status"}}, rows: []table.Row{{"1", "paid"}},
+		columns: []table.Column{{Title: "id"}, {Title: "status"}}, rows: []db.DataRow{testDataRow("1", "paid")},
 		sortColumn: "id", filterColumn: "status", filterValue: "paid",
 	})
 	model = updated.(workspaceModel)
@@ -580,7 +605,7 @@ func TestWorkspaceRequestLifecycle(t *testing.T) {
 	model.loading = true
 
 	updated, _ := model.Update(workspaceTableLoadedMsg{
-		requestID: 2, tableName: "stale", rows: []table.Row{{"old"}},
+		requestID: 2, tableName: "stale", rows: []db.DataRow{testDataRow("old")},
 	})
 	model = updated.(workspaceModel)
 	if model.selectedTable != "current" || !model.loading {
@@ -589,7 +614,7 @@ func TestWorkspaceRequestLifecycle(t *testing.T) {
 
 	model.filterEditing = true
 	updated, _ = model.Update(workspaceTableLoadedMsg{
-		requestID: 3, tableName: "latest", columns: []table.Column{{Title: "id"}}, rows: []table.Row{{"1"}},
+		requestID: 3, tableName: "latest", columns: []table.Column{{Title: "id"}}, rows: []db.DataRow{testDataRow("1")},
 	})
 	model = updated.(workspaceModel)
 	if model.selectedTable != "latest" || model.loading || !model.filterEditing || model.activeRequestID != 0 {
@@ -605,7 +630,7 @@ func TestWorkspaceRequestLifecycle(t *testing.T) {
 	model.filterEditing = false
 	model.mode = workspaceModeEditor
 	updated, _ = model.Update(workspaceTableLoadedMsg{
-		requestID: 4, tableName: "editor-result", columns: []table.Column{{Title: "id"}}, rows: []table.Row{{"2"}},
+		requestID: 4, tableName: "editor-result", columns: []table.Column{{Title: "id"}}, rows: []db.DataRow{testDataRow("2")},
 	})
 	model = updated.(workspaceModel)
 	if model.selectedTable != "editor-result" || model.loading {
@@ -627,7 +652,7 @@ func TestWorkspaceFailedPagePreservesCommittedStateAndRetries(t *testing.T) {
 	model.navigatorOpen = false
 	model.selectedTable = "orders"
 	model.columns = []table.Column{{Title: "id"}}
-	model.rows = []table.Row{{"100"}}
+	model.rows = []db.DataRow{testDataRow("100")}
 	model.offset = 0
 	model.hasNext = true
 	model.nextCursor = "100"
@@ -644,7 +669,7 @@ func TestWorkspaceFailedPagePreservesCommittedStateAndRetries(t *testing.T) {
 
 	updated, _ = model.Update(workspaceTableLoadedMsg{requestID: 2, tableName: "orders", offset: 100, err: errors.New("timeout")})
 	model = updated.(workspaceModel)
-	if model.offset != 0 || len(model.cursorHistory) != 0 || model.rows[0][0] != "100" || model.failedBrowse == nil {
+	if model.offset != 0 || len(model.cursorHistory) != 0 || model.rows[0][0].Text != "100" || model.failedBrowse == nil {
 		t.Fatalf("failed page replaced committed state: %#v", model)
 	}
 	if !strings.Contains(model.content.View(), "100") || !strings.Contains(model.View(), "Load failed") {
@@ -674,7 +699,7 @@ func TestWorkspaceContextualHelpDoesNotCaptureEditorTyping(t *testing.T) {
 	model.navigatorOpen = false
 	model.selectedTable = "orders"
 	model.columns = []table.Column{{Title: "id"}}
-	model.rows = []table.Row{{"1"}}
+	model.rows = []db.DataRow{testDataRow("1")}
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	model = updated.(workspaceModel)
 	if !strings.Contains(model.View(), "Data help") {

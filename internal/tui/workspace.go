@@ -49,7 +49,7 @@ type workspaceTableLoadedMsg struct {
 	tableName      string
 	structure      []db.TableColumnInfo
 	columns        []table.Column
-	rows           []table.Row
+	rows           []db.DataRow
 	offset         int
 	hasNext        bool
 	nextCursor     string
@@ -81,7 +81,7 @@ type workspaceModel struct {
 	selectedTable     string
 	structure         []db.TableColumnInfo
 	columns           []table.Column
-	rows              []table.Row
+	rows              []db.DataRow
 	rowCursor         int
 	rowPeek           bool
 	rowPeekGridOffset int
@@ -650,7 +650,7 @@ func renderWorkspaceStructure(tableName string, columns []db.TableColumnInfo) st
 	return output.String()
 }
 
-func renderWorkspaceRows(tableName string, columns []table.Column, rows []table.Row, offset, maxWidth, selectedRow int) string {
+func renderWorkspaceRows(tableName string, columns []table.Column, rows []db.DataRow, offset, maxWidth, selectedRow int) string {
 	var output strings.Builder
 	output.WriteString(fmt.Sprintf("Data · %s · rows %d–%d\n\n", tableName, offset+1, offset+len(rows)))
 	if len(rows) == 0 {
@@ -668,9 +668,13 @@ func renderWorkspaceRows(tableName string, columns []table.Column, rows []table.
 				marker = "> "
 			}
 			output.WriteString(fmt.Sprintf("%sRow %d\n", marker, offset+rowIndex+1))
-			for columnIndex, value := range row {
+			for columnIndex, cell := range row {
 				if columnIndex >= len(columns) {
 					break
+				}
+				value := cell.DisplayText(false)
+				if cell.IsNull {
+					value = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(value)
 				}
 				output.WriteString(fmt.Sprintf("  %s: %s\n", columns[columnIndex].Title, value))
 			}
@@ -686,17 +690,21 @@ func renderWorkspaceRows(tableName string, columns []table.Column, rows []table.
 		widths[index] = min(max(len(column.Title), 8), columnLimit)
 	}
 	for _, row := range rows {
-		for index, value := range row {
-			widths[index] = min(max(widths[index], len(value)), columnLimit)
+		for index, cell := range row {
+			widths[index] = min(max(widths[index], ansi.StringWidth(cell.DisplayText(false))), columnLimit)
 		}
 	}
-	writeRow := func(values []string, prefix string) {
+	writeRow := func(values []string, nulls []bool, prefix string) {
 		output.WriteString(prefix)
 		for index, value := range values {
-			if len(value) > widths[index] {
-				value = value[:widths[index]-3] + "..."
+			if ansi.StringWidth(value) > widths[index] {
+				value = ansi.Truncate(value, widths[index], "...")
 			}
-			output.WriteString(fmt.Sprintf("%-*s", widths[index], value))
+			padding := strings.Repeat(" ", max(widths[index]-ansi.StringWidth(value), 0))
+			if index < len(nulls) && nulls[index] {
+				value = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(value)
+			}
+			output.WriteString(value + padding)
 			if index < len(values)-1 {
 				output.WriteString(" │ ")
 			}
@@ -707,7 +715,7 @@ func renderWorkspaceRows(tableName string, columns []table.Column, rows []table.
 	for index, column := range columns {
 		headings[index] = column.Title
 	}
-	writeRow(headings, "  ")
+	writeRow(headings, nil, "  ")
 	dividerParts := make([]string, len(widths))
 	for index, width := range widths {
 		dividerParts[index] = strings.Repeat("─", width)
@@ -719,7 +727,13 @@ func renderWorkspaceRows(tableName string, columns []table.Column, rows []table.
 		if rowIndex == selectedRow {
 			prefix = "> "
 		}
-		writeRow([]string(row), prefix)
+		values := make([]string, len(row))
+		nulls := make([]bool, len(row))
+		for index, cell := range row {
+			values[index] = cell.DisplayText(false)
+			nulls[index] = cell.IsNull
+		}
+		writeRow(values, nulls, prefix)
 		if rowIndex < len(rows)-1 {
 			output.WriteString(divider)
 		}
@@ -727,7 +741,7 @@ func renderWorkspaceRows(tableName string, columns []table.Column, rows []table.
 	return output.String()
 }
 
-func renderWorkspaceRowPeek(tableName string, columns []table.Column, row table.Row, rowNumber, width int) string {
+func renderWorkspaceRowPeek(tableName string, columns []table.Column, row db.DataRow, rowNumber, width int) string {
 	var output strings.Builder
 	output.WriteString(fmt.Sprintf("Row %d · %s\n\n", rowNumber, tableName))
 	labelWidth := 0
@@ -736,12 +750,16 @@ func renderWorkspaceRowPeek(tableName string, columns []table.Column, row table.
 	}
 	labelWidth = min(labelWidth, min(24, max(width/3, 12)))
 	valueWidth := max(width-labelWidth-2, 8)
-	for index, value := range row {
+	for index, cell := range row {
 		if index >= len(columns) {
 			break
 		}
 		label := ansi.Truncate(columns[index].Title, labelWidth, "…")
 		labelPadding := strings.Repeat(" ", max(labelWidth-ansi.StringWidth(label), 0))
+		value := cell.DisplayText(true)
+		if cell.IsNull {
+			value = "SQL NULL"
+		}
 		wrappedLines := strings.Split(ansi.Hardwrap(value, valueWidth, true), "\n")
 		if len(wrappedLines) == 0 {
 			wrappedLines = []string{""}

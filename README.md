@@ -283,6 +283,9 @@ common **80×24** size. If the terminal becomes smaller, Maxim keeps the active
 workspace state and shows resize guidance until enough room is available.
 Loading, cancellation, timeout, empty-result, permission-denied, and lost-
 connection states are shown separately so failures are not mistaken for empty data.
+Database values retain their PostgreSQL type and raw identity until display. SQL
+`NULL`, text `"NULL"`, and empty text are distinct; long Unicode and control
+characters are rendered safely without changing numeric precision or timestamps.
 - `Esc` - Return from the row peek to the data grid
 - `/` - Apply a server-side `column=value` filter
 - `s` - Cycle the sort column

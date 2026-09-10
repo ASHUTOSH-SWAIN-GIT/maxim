@@ -32,7 +32,7 @@ Based on repository inspection, not a new test or performance run:
 | --- | --- | --- |
 | Connections | Named profiles, host/port/database/SSL mode, password prompt | Connection lifecycle, read-only profiles, certificate configuration, recovery |
 | Workspace | Table navigator, Data/Structure, simple row peek, SQL editor shortcut | Responsive layout, consistent view navigation, request isolation, help |
-| Browsing | Bounded pages, equality filter, sort cycling | More filter types, predictable errors, wider-table navigation |
+| Browsing | Bounded typed pages, equality filter, sort cycling | More filter types, wider-table navigation |
 | Pagination | Single-primary-key keyset path; offset fallback | Typed cursors, compound keys, stable tie-breaking, concurrency semantics |
 | Timeout | Shared deadlines for connection, metadata, browsing, and SQL; cancellation in workspace/editor | Reconnect behavior and cancellation coverage for future operations |
 | SQL | Async execution, cancellation, autocomplete, first 100 result rows displayed | Retained drafts, reliable SQL parsing, clear truncation/affected-row reporting |
@@ -47,7 +47,6 @@ Known code issues to address first:
 - Metadata lookup assumes `public`, but data queries use an unqualified table name. Schema resolution must be consistent.
 - `internal/tui/sqlEditor.go` has a statement splitter that understands only basic single-quoted strings.
 - `internal/db/query_executor.go` stops displaying results at 100 rows, but this is not a database-work limit or a cancellation mechanism.
-- Values are flattened to strings, including the same visible representation for SQL NULL and text containing `NULL`.
 
 ## Execution order and milestones
 
@@ -79,7 +78,7 @@ Done when: delayed responses, failed next-page loads, rapid repeated keys, switc
 
 Depends on Phase 0 request/state handling.
 
-- [ ] **M1.1 Typed values:** separate raw values, null flags, metadata, and display text. Preserve numeric precision and timestamp identity; escape terminal control characters and truncate by display width safely.
+- [x] **M1.1 Typed values:** separate raw values, null flags, metadata, and display text. Preserve numeric precision and timestamp identity; escape terminal control characters and truncate by display width safely.
 - [ ] **M1.2 Qualified identifiers:** represent schema and table separately and quote both. Validate user-selected columns against that exact table; bind filter values as parameters.
 - [ ] **M1.3 Cursor correctness:** use lossless cursor values and distinguish an absent cursor from an empty string. Bind cursors to the current connection, table, sort, and filter.
 - [ ] **M1.4 Stable ordering:** support composite primary keys; add unique tie-breakers for custom sorts. Define NULL placement and both traversal directions explicitly. Use keyset only where the ordering and types support it.
@@ -202,9 +201,9 @@ Do not start these unless recurring user feedback justifies changing the roadmap
 
 ## Current work
 
-- **Status:** Phase 0 complete (M0.1–M0.7); Phase 1 is next.
-- **Next item:** M1.1 — preserve typed database values, NULL identity, numeric precision, timestamp identity, and terminal-safe display text.
-- **Following items:** M1.2 qualified identifiers; M1.3 cursor correctness; M1.4 stable ordering.
+- **Status:** Phase 0 and M1.1 complete; Phase 1 is in progress.
+- **Next item:** M1.2 — represent schema and table separately, quote both identifiers, and validate filters against that exact relation.
+- **Following items:** M1.3 cursor correctness; M1.4 stable ordering; M1.5 honest pagination fallback.
 - **First milestone:** reliable browsing foundation (Phases 0–1).
 - **Planning-only change:** this document does not implement the features above or authorize external releases, telemetry, or database writes.
 
@@ -220,3 +219,4 @@ Do not start these unless recurring user feedback justifies changing the roadmap
 | 2026-09-10 | M0.5 | Kept the simple vertical row peek, wrapped long and multiline Unicode values, added independent line/page scrolling, retained peek scroll through resize, and restored the exact selected row and grid viewport on exit. |
 | 2026-09-10 | M0.6 | Removed the rejected inspector implementation, dead editor helpers, and redundant focus state; made each browse response reuse the same discovered table structure for validation, rendering, and pagination. |
 | 2026-09-10 | M0.7 | Added contextual `?` help for workspace views and `F1` help inside typing modes; added visible loading cancellation plus distinct timeout, empty-result, permission-denied, generic-failure, and disconnected states. |
+| 2026-09-10 | M1.1 | Added typed cells to table browsing and SQL results with copied raw values, PostgreSQL type names, explicit NULL identity, exact numeric/timestamp text, byte encoding, terminal-control escaping, and display-width-safe grid/peek rendering; verified with unit and disposable PostgreSQL integration fixtures. |

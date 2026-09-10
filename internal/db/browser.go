@@ -23,7 +23,7 @@ type TableBrowseRequest struct {
 type TableBrowsePage struct {
 	Structure     []TableColumnInfo
 	Columns       []table.Column
-	Rows          []table.Row
+	Rows          []DataRow
 	HasNext       bool
 	NextCursor    string
 	KeysetEnabled bool
@@ -133,6 +133,10 @@ func BrowseTableContext(parent context.Context, database *sql.DB, tableName stri
 	if err != nil {
 		return TableBrowsePage{}, err
 	}
+	columnTypes, err := rows.ColumnTypes()
+	if err != nil {
+		return TableBrowsePage{}, err
+	}
 	result := TableBrowsePage{
 		Structure:     structure,
 		Columns:       make([]table.Column, len(columnNames)),
@@ -159,9 +163,13 @@ func BrowseTableContext(parent context.Context, database *sql.DB, tableName stri
 			result.HasNext = true
 			break
 		}
-		row := make(table.Row, len(values))
+		row := make(DataRow, len(values))
 		for index, value := range values {
-			row[index] = formatTableValue(value)
+			databaseTypeName := ""
+			if index < len(columnTypes) {
+				databaseTypeName = columnTypes[index].DatabaseTypeName()
+			}
+			row[index] = newCellValue(value, databaseTypeName)
 		}
 		result.Rows = append(result.Rows, row)
 	}
@@ -169,23 +177,7 @@ func BrowseTableContext(parent context.Context, database *sql.DB, tableName stri
 		return TableBrowsePage{}, err
 	}
 	if keyset && len(result.Rows) > 0 {
-		result.NextCursor = result.Rows[len(result.Rows)-1][sortIndex]
+		result.NextCursor = result.Rows[len(result.Rows)-1][sortIndex].Text
 	}
 	return result, nil
-}
-
-func formatTableValue(value any) string {
-	if value == nil {
-		return "NULL"
-	}
-	switch typed := value.(type) {
-	case []byte:
-		return string(typed)
-	case float64:
-		return fmt.Sprintf("%.2f", typed)
-	case float32:
-		return fmt.Sprintf("%.2f", typed)
-	default:
-		return fmt.Sprintf("%v", typed)
-	}
 }

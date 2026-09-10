@@ -137,7 +137,7 @@ func TestIntegrationSchemaDiscoveryAndPagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("browse first keyset page: %v", err)
 	}
-	if !firstPage.KeysetEnabled || !firstPage.HasNext || firstPage.NextCursor != "2" || firstPage.Rows[0][0] != "1" {
+	if !firstPage.KeysetEnabled || !firstPage.HasNext || firstPage.NextCursor != "2" || firstPage.Rows[0][0].Text != "1" {
 		t.Fatalf("unexpected first keyset page: %#v", firstPage)
 	}
 	if len(firstPage.Structure) != 4 || firstPage.Structure[0].Name != "id" {
@@ -147,7 +147,7 @@ func TestIntegrationSchemaDiscoveryAndPagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("browse second keyset page: %v", err)
 	}
-	if len(secondPage.Rows) != 2 || secondPage.Rows[0][0] != "3" || secondPage.Rows[1][0] != "4" {
+	if len(secondPage.Rows) != 2 || secondPage.Rows[0][0].Text != "3" || secondPage.Rows[1][0].Text != "4" {
 		t.Fatalf("unexpected second keyset page: %#v", secondPage.Rows)
 	}
 	filtered, err := BrowseTable(database, tableName, TableBrowseRequest{
@@ -156,7 +156,7 @@ func TestIntegrationSchemaDiscoveryAndPagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("browse filtered rows: %v", err)
 	}
-	if len(filtered.Rows) != 2 || filtered.Rows[0][0] != "2" || filtered.Rows[1][0] != "4" {
+	if len(filtered.Rows) != 2 || filtered.Rows[0][0].Text != "2" || filtered.Rows[1][0].Text != "4" {
 		t.Fatalf("unexpected filtered rows: %#v", filtered.Rows)
 	}
 	sorted, err := BrowseTable(database, tableName, TableBrowseRequest{
@@ -165,7 +165,7 @@ func TestIntegrationSchemaDiscoveryAndPagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("browse sorted rows: %v", err)
 	}
-	if sorted.KeysetEnabled || sorted.Rows[0][1] != "record-5" || sorted.Rows[1][1] != "record-4" {
+	if sorted.KeysetEnabled || sorted.Rows[0][1].Text != "record-5" || sorted.Rows[1][1].Text != "record-4" {
 		t.Fatalf("unexpected custom sort: %#v", sorted)
 	}
 	if _, err := BrowseTable(database, tableName, TableBrowseRequest{FilterColumn: "id; DROP TABLE unsafe", FilterValue: "1"}); err == nil {
@@ -210,6 +210,16 @@ func TestIntegrationExecuteQuery(t *testing.T) {
 	}
 	if result.RowCount != 1 || !strings.Contains(result.Data, "answer") || !strings.Contains(result.Data, "maxim") {
 		t.Fatalf("unexpected query result: %#v", result)
+	}
+	if len(result.Rows) != 1 || len(result.Rows[0]) != 2 || result.Rows[0][0].DatabaseTypeName != "INT4" {
+		t.Fatalf("query result did not retain typed cells: %#v", result.Rows)
+	}
+
+	typed := ExecuteQuery(database, `SELECT NULL::text AS missing, 'NULL'::text AS literal,
+		99999999999999999999.12345678901234567890::numeric AS precise`)
+	if !typed.Success || !typed.Rows[0][0].IsNull || typed.Rows[0][1].IsNull ||
+		typed.Rows[0][1].DisplayText(false) != `"NULL"` || typed.Rows[0][2].Text != "99999999999999999999.12345678901234567890" {
+		t.Fatalf("query value identity was not preserved: %#v", typed)
 	}
 
 	invalid := ExecuteQuery(database, "SELECT * FROM table_that_does_not_exist")
@@ -264,6 +274,15 @@ func TestIntegrationMutationsAndPostgresDataTypes(t *testing.T) {
 	}
 	if len(columns) != 5 || len(rows) != 1 {
 		t.Fatalf("unexpected typed data result: %d columns, %d rows", len(columns), len(rows))
+	}
+	typedPage, err := BrowseTable(database, tableName, TableBrowseRequest{Limit: 10})
+	if err != nil {
+		t.Fatalf("browse PostgreSQL data types: %v", err)
+	}
+	if len(typedPage.Rows) != 1 || typedPage.Rows[0][0].DatabaseTypeName != "UUID" ||
+		typedPage.Rows[0][1].DatabaseTypeName != "JSONB" || typedPage.Rows[0][3].DatabaseTypeName != "TIMESTAMPTZ" ||
+		typedPage.Rows[0][4].DatabaseTypeName != "BYTEA" || typedPage.Rows[0][4].Text != `\x4d6178696d` {
+		t.Fatalf("database type identity was not preserved: %#v", typedPage.Rows)
 	}
 
 	remove := ExecuteQuery(database, "DELETE FROM "+quotedTable+" RETURNING id")

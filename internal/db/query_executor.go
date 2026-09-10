@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/lib/pq"
 )
 
@@ -16,6 +17,8 @@ type QueryResult struct {
 	Data     string
 	Error    string
 	RowCount int
+	Columns  []string
+	Rows     []DataRow
 }
 
 // ExecuteQuery executes a SQL query and returns formatted results
@@ -54,13 +57,17 @@ func ExecuteQueryContext(parent context.Context, db *sql.DB, query string) Query
 			Error:   fmt.Sprintf("Error getting columns:\n%s", err.Error()),
 		}
 	}
+	columnTypes, err := rows.ColumnTypes()
+	if err != nil {
+		return QueryResult{Success: false, Error: fmt.Sprintf("Error getting column types:\n%s", err.Error())}
+	}
 
 	// Build results table
 	var result strings.Builder
 	result.WriteString("Query executed successfully!\n\n")
 
 	// First pass: collect all data to calculate column widths
-	var allRows [][]string
+	var allRows []DataRow
 	rowCount := 0
 	for rows.Next() {
 		// Create a slice of interface{} to hold the values
@@ -79,35 +86,13 @@ func ExecuteQueryContext(parent context.Context, db *sql.DB, query string) Query
 		}
 
 		// Process row data
-		rowData := make([]string, len(columns))
+		rowData := make(DataRow, len(columns))
 		for i, val := range values {
-			cellValue := "NULL"
-			if val != nil {
-				// Handle different data types properly
-				switch v := val.(type) {
-				case []byte:
-					// Convert byte array to string
-					cellValue = string(v)
-				case string:
-					cellValue = v
-				case int64:
-					cellValue = fmt.Sprintf("%d", v)
-				case int32:
-					cellValue = fmt.Sprintf("%d", v)
-				case int:
-					cellValue = fmt.Sprintf("%d", v)
-				case float64:
-					cellValue = fmt.Sprintf("%.2f", v)
-				case float32:
-					cellValue = fmt.Sprintf("%.2f", v)
-				case bool:
-					cellValue = fmt.Sprintf("%t", v)
-				default:
-					// For other types, use string representation
-					cellValue = fmt.Sprintf("%v", v)
-				}
+			databaseTypeName := ""
+			if i < len(columnTypes) {
+				databaseTypeName = columnTypes[i].DatabaseTypeName()
 			}
-			rowData[i] = cellValue
+			rowData[i] = newCellValue(val, databaseTypeName)
 		}
 		allRows = append(allRows, rowData)
 		rowCount++
@@ -127,8 +112,9 @@ func ExecuteQueryContext(parent context.Context, db *sql.DB, query string) Query
 	// Find the maximum width for each column
 	for _, row := range allRows {
 		for i, cell := range row {
-			if len(cell) > columnWidths[i] {
-				columnWidths[i] = len(cell)
+			cellValue := cell.DisplayText(false)
+			if ansi.StringWidth(cellValue) > columnWidths[i] {
+				columnWidths[i] = ansi.StringWidth(cellValue)
 			}
 		}
 	}
@@ -166,11 +152,12 @@ func ExecuteQueryContext(parent context.Context, db *sql.DB, query string) Query
 		rowStr := "│"
 		for i, cell := range rowData {
 			// Truncate if too long
-			displayValue := cell
-			if len(cell) > columnWidths[i] {
-				displayValue = cell[:columnWidths[i]-3] + "..."
+			displayValue := cell.DisplayText(false)
+			if ansi.StringWidth(displayValue) > columnWidths[i] {
+				displayValue = ansi.Truncate(displayValue, columnWidths[i], "...")
 			}
-			rowStr += fmt.Sprintf(" %-*s │", columnWidths[i], displayValue)
+			padding := strings.Repeat(" ", max(columnWidths[i]-ansi.StringWidth(displayValue), 0))
+			rowStr += " " + displayValue + padding + " │"
 		}
 		result.WriteString(rowStr + "\n")
 	}
@@ -192,6 +179,8 @@ func ExecuteQueryContext(parent context.Context, db *sql.DB, query string) Query
 		Success:  true,
 		Data:     result.String(),
 		RowCount: rowCount,
+		Columns:  columns,
+		Rows:     allRows,
 	}
 }
 
