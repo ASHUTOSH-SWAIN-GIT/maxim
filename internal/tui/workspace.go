@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 
 	"github.com/ASHUTOSH-SWAIN-GIT/maxim/internal/db"
 	"github.com/charmbracelet/bubbles/table"
@@ -17,6 +18,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lib/pq"
 )
+
+var workspaceConnectionSequence atomic.Uint64
 
 type workspaceMode int
 
@@ -40,45 +43,47 @@ const (
 
 type workspaceTablesLoadedMsg struct {
 	requestID uint64
-	tables    []string
+	tables    []db.Relation
 	err       error
 }
 
 type workspaceTableLoadedMsg struct {
-	requestID      uint64
-	tableName      string
-	structure      []db.TableColumnInfo
-	columns        []table.Column
-	rows           []db.DataRow
-	offset         int
-	hasNext        bool
-	nextCursor     string
-	keysetEnabled  bool
-	sortColumn     string
-	sortDescending bool
-	filterColumn   string
-	filterValue    string
-	err            error
+	requestID        uint64
+	relation         db.Relation
+	structure        []db.TableColumnInfo
+	columns          []table.Column
+	rows             []db.DataRow
+	offset           int
+	hasNext          bool
+	nextCursor       *db.TableCursor
+	keysetEnabled    bool
+	paginationReason string
+	sortColumn       string
+	sortDescending   bool
+	filterColumn     string
+	filterValue      string
+	err              error
 }
 
 type workspaceBrowseIntent struct {
-	tableName      string
+	relation       db.Relation
 	request        db.TableBrowseRequest
-	cursorHistory  []string
+	cursorHistory  []*db.TableCursor
 	closeNavigator bool
 }
 
 type workspaceModel struct {
 	db                *sql.DB
+	connectionID      uint64
 	dbName            string
 	connectionLabel   string
 	changeConnection  bool
 	mode              workspaceMode
 	navigatorOpen     bool
 	tab               workspaceTab
-	tables            []string
+	tables            []db.Relation
 	cursor            int
-	selectedTable     string
+	selectedRelation  db.Relation
 	structure         []db.TableColumnInfo
 	columns           []table.Column
 	rows              []db.DataRow
@@ -88,9 +93,10 @@ type workspaceModel struct {
 	pageSize          int
 	offset            int
 	hasNext           bool
-	nextCursor        string
+	nextCursor        *db.TableCursor
 	keysetEnabled     bool
-	cursorHistory     []string
+	paginationReason  string
+	cursorHistory     []*db.TableCursor
 	sortColumn        string
 	sortDescending    bool
 	filterColumn      string
@@ -124,6 +130,7 @@ func initialWorkspaceModel(database *sql.DB, dbName, connectionLabel string) wor
 	requestContext, requestCancel := context.WithCancel(context.Background())
 	return workspaceModel{
 		db: database, dbName: dbName, connectionLabel: connectionLabel,
+		connectionID:  workspaceConnectionSequence.Add(1),
 		navigatorOpen: true, tab: workspaceTabData,
 		pageSize: 100, loading: true, content: content, filterInput: filterInput,
 		nextRequestID: 1, activeRequestID: 1,
@@ -137,19 +144,20 @@ func (m workspaceModel) Init() tea.Cmd {
 
 func loadWorkspaceTables(ctx context.Context, database *sql.DB, requestID uint64) tea.Cmd {
 	return func() tea.Msg {
-		tables, err := db.GetTablesContext(ctx, database)
+		tables, err := db.GetRelationsContext(ctx, database)
 		return workspaceTablesLoadedMsg{requestID: requestID, tables: tables, err: err}
 	}
 }
 
-func loadWorkspaceBrowse(ctx context.Context, database *sql.DB, tableName string, request db.TableBrowseRequest, requestID uint64) tea.Cmd {
+func loadWorkspaceBrowse(ctx context.Context, database *sql.DB, relation db.Relation, request db.TableBrowseRequest, requestID uint64) tea.Cmd {
 	return func() tea.Msg {
-		page, err := db.BrowseTableContext(ctx, database, tableName, request)
+		page, err := db.BrowseRelationContext(ctx, database, relation, request)
 		return workspaceTableLoadedMsg{
-			requestID: requestID, tableName: tableName, structure: page.Structure, columns: page.Columns,
+			requestID: requestID, relation: relation, structure: page.Structure, columns: page.Columns,
 			rows: page.Rows, offset: request.Offset, hasNext: page.HasNext,
 			nextCursor: page.NextCursor, keysetEnabled: page.KeysetEnabled,
-			sortColumn: page.SortColumn, sortDescending: request.Descending,
+			paginationReason: page.PaginationReason,
+			sortColumn:       page.SortColumn, sortDescending: request.Descending,
 			filterColumn: request.FilterColumn, filterValue: request.FilterValue, err: err,
 		}
 	}
@@ -164,12 +172,12 @@ func (m *workspaceModel) startBrowse(intent workspaceBrowseIntent) tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.requestContext = ctx
 	m.requestCancel = cancel
-	intent.cursorHistory = append([]string(nil), intent.cursorHistory...)
+	intent.cursorHistory = cloneCursorHistory(intent.cursorHistory)
 	m.pendingBrowse = &intent
 	m.failedBrowse = nil
 	m.notice = ""
 	m.loading = true
-	return loadWorkspaceBrowse(ctx, m.db, intent.tableName, intent.request, m.activeRequestID)
+	return loadWorkspaceBrowse(ctx, m.db, intent.relation, intent.request, m.activeRequestID)
 }
 
 func (m *workspaceModel) startTableDiscovery() tea.Cmd {
@@ -208,20 +216,28 @@ func (m *workspaceModel) cancelRequest() {
 	m.pendingBrowse = nil
 }
 
-func (m workspaceModel) browseRequest(cursor string, offset int) db.TableBrowseRequest {
+func (m workspaceModel) browseRequest(cursor *db.TableCursor, offset int) db.TableBrowseRequest {
 	return db.TableBrowseRequest{
 		Limit: m.pageSize, Offset: offset, SortColumn: m.sortColumn,
 		Descending: m.sortDescending, FilterColumn: m.filterColumn,
-		FilterValue: m.filterValue, Cursor: cursor,
+		FilterValue: m.filterValue, ConnectionID: m.connectionID, Cursor: cursor.Clone(),
 	}
 }
 
-func (m workspaceModel) browseIntent(cursor string, offset int) workspaceBrowseIntent {
+func (m workspaceModel) browseIntent(cursor *db.TableCursor, offset int) workspaceBrowseIntent {
 	return workspaceBrowseIntent{
-		tableName:     m.selectedTable,
+		relation:      m.selectedRelation,
 		request:       m.browseRequest(cursor, offset),
-		cursorHistory: append([]string(nil), m.cursorHistory...),
+		cursorHistory: cloneCursorHistory(m.cursorHistory),
 	}
+}
+
+func cloneCursorHistory(cursors []*db.TableCursor) []*db.TableCursor {
+	cloned := make([]*db.TableCursor, len(cursors))
+	for index, cursor := range cursors {
+		cloned[index] = cursor.Clone()
+	}
+	return cloned
 }
 
 func formatWorkspaceFailure(err error) (message string, disconnected bool) {
@@ -275,7 +291,7 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.tablesLoadFailed = false
 		m.tables = message.tables
 		if len(m.tables) == 0 {
-			m.content.SetContent("No tables found in the public schema.")
+			m.content.SetContent("No user tables found.")
 		}
 		return m, nil
 	case workspaceTableLoadedMsg:
@@ -293,7 +309,7 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice = ""
 			m.failedBrowse = nil
 			m.disconnected = false
-			m.selectedTable = message.tableName
+			m.selectedRelation = message.relation
 			m.structure = message.structure
 			m.columns = message.columns
 			m.rows = message.rows
@@ -301,12 +317,13 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.hasNext = message.hasNext
 			m.nextCursor = message.nextCursor
 			m.keysetEnabled = message.keysetEnabled
+			m.paginationReason = message.paginationReason
 			m.sortColumn = message.sortColumn
 			m.sortDescending = message.sortDescending
 			m.filterColumn = message.filterColumn
 			m.filterValue = message.filterValue
 			if intent != nil {
-				m.cursorHistory = append([]string(nil), intent.cursorHistory...)
+				m.cursorHistory = cloneCursorHistory(intent.cursorHistory)
 				if intent.closeNavigator {
 					m.navigatorOpen = false
 				}
@@ -356,7 +373,7 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.filterEditing = false
 				m.filterInput.Blur()
-				intent := m.browseIntent("", 0)
+				intent := m.browseIntent(nil, 0)
 				intent.request.FilterColumn = filterColumn
 				intent.request.FilterValue = filterValue
 				intent.cursorHistory = nil
@@ -395,7 +412,7 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.changeConnection = true
 			return m, tea.Quit
 		case "tab":
-			if !m.navigatorOpen && m.selectedTable != "" {
+			if !m.navigatorOpen && m.selectedRelation.Name != "" {
 				m.rowPeek = false
 				if m.tab == workspaceTabStructure {
 					m.tab = workspaceTabData
@@ -414,7 +431,7 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.navigatorOpen = !m.navigatorOpen
 			return m, nil
 		case "/":
-			if !m.navigatorOpen && m.selectedTable != "" {
+			if !m.navigatorOpen && m.selectedRelation.Name != "" {
 				m.filterEditing = true
 				m.filterInput.SetValue("")
 				if m.filterColumn != "" {
@@ -432,14 +449,14 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 						break
 					}
 				}
-				intent := m.browseIntent("", 0)
+				intent := m.browseIntent(nil, 0)
 				intent.request.SortColumn = m.structure[next].Name
 				intent.cursorHistory = nil
 				return m, m.startBrowse(intent)
 			}
 		case "S":
-			if !m.navigatorOpen && m.selectedTable != "" {
-				intent := m.browseIntent("", 0)
+			if !m.navigatorOpen && m.selectedRelation.Name != "" {
+				intent := m.browseIntent(nil, 0)
 				intent.request.Descending = !m.sortDescending
 				intent.cursorHistory = nil
 				return m, m.startBrowse(intent)
@@ -458,7 +475,7 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if m.navigatorOpen && len(m.tables) > 0 {
 				intent := workspaceBrowseIntent{
-					tableName:      m.tables[m.cursor],
+					relation:       m.tables[m.cursor],
 					request:        db.TableBrowseRequest{Limit: m.pageSize},
 					closeNavigator: true,
 				}
@@ -485,26 +502,26 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "n":
-			if !m.navigatorOpen && m.selectedTable != "" && m.hasNext {
-				intent := m.browseIntent("", m.offset+m.pageSize)
+			if !m.navigatorOpen && m.selectedRelation.Name != "" && m.hasNext {
+				intent := m.browseIntent(nil, m.offset+m.pageSize)
 				if m.keysetEnabled {
-					intent.request.Cursor = m.nextCursor
-					intent.cursorHistory = append(intent.cursorHistory, m.nextCursor)
+					intent.request.Cursor = m.nextCursor.Clone()
+					intent.cursorHistory = append(intent.cursorHistory, m.nextCursor.Clone())
 				}
 				return m, m.startBrowse(intent)
 			}
 		case "p":
-			if !m.navigatorOpen && m.selectedTable != "" && m.offset > 0 {
+			if !m.navigatorOpen && m.selectedRelation.Name != "" && m.offset > 0 {
 				nextOffset := m.offset - m.pageSize
 				if nextOffset < 0 {
 					nextOffset = 0
 				}
-				cursor := ""
-				history := append([]string(nil), m.cursorHistory...)
+				var cursor *db.TableCursor
+				history := cloneCursorHistory(m.cursorHistory)
 				if m.keysetEnabled && len(history) > 0 {
 					history = history[:len(history)-1]
 					if len(history) > 0 {
-						cursor = history[len(history)-1]
+						cursor = history[len(history)-1].Clone()
 					}
 				}
 				intent := m.browseIntent(cursor, nextOffset)
@@ -609,16 +626,16 @@ func (m *workspaceModel) refreshContent() {
 		m.content.SetContent("Error\n\n" + m.err)
 		return
 	}
-	if m.selectedTable == "" {
+	if m.selectedRelation.Name == "" {
 		m.content.SetContent("Choose a table to inspect its structure and data.")
 		return
 	}
 	if m.tab == workspaceTabStructure {
-		m.content.SetContent(renderWorkspaceStructure(m.selectedTable, m.structure))
+		m.content.SetContent(renderWorkspaceStructure(m.selectedRelation.DisplayName(), m.structure))
 	} else if m.rowPeek && len(m.rows) > 0 {
-		m.content.SetContent(renderWorkspaceRowPeek(m.selectedTable, m.columns, m.rows[m.rowCursor], m.offset+m.rowCursor+1, m.content.Width))
+		m.content.SetContent(renderWorkspaceRowPeek(m.selectedRelation.DisplayName(), m.columns, m.rows[m.rowCursor], m.offset+m.rowCursor+1, m.content.Width))
 	} else {
-		m.content.SetContent(renderWorkspaceRows(m.selectedTable, m.columns, m.rows, m.offset, m.content.Width, m.rowCursor))
+		m.content.SetContent(renderWorkspaceRows(m.selectedRelation.DisplayName(), m.columns, m.rows, m.offset, m.content.Width, m.rowCursor))
 		selectedLine := 4 + m.rowCursor*2
 		if m.content.Width < 80 || len(m.columns) > 6 {
 			selectedLine = 2 + m.rowCursor*(len(m.columns)+2)
@@ -880,11 +897,11 @@ func (m workspaceModel) View() string {
 	}
 
 	if m.navigatorOpen {
-		explorerContent := header.Render("Choose a table") + "  " + muted.Render("public") + "\n\n"
+		explorerContent := header.Render("Choose a table") + "  " + muted.Render("all schemas") + "\n\n"
 		if m.loading && len(m.tables) == 0 {
 			explorerContent += muted.Render("Loading · discovering tables…")
 		} else if len(m.tables) == 0 {
-			explorerContent += muted.Render("Empty schema · no tables found in public")
+			explorerContent += muted.Render("Empty database · no user tables found")
 		} else {
 			availableRows := m.height - 10
 			if m.pendingBrowse != nil {
@@ -903,7 +920,7 @@ func (m workspaceModel) View() string {
 				explorerContent += muted.Render(fmt.Sprintf("  ↑ %d more", start)) + "\n"
 			}
 			for index := start; index < end; index++ {
-				tableName := m.tables[index]
+				tableName := m.tables[index].DisplayName()
 				prefix := "  "
 				style := muted
 				if index == m.cursor {
@@ -918,7 +935,7 @@ func (m workspaceModel) View() string {
 			}
 		}
 		if m.pendingBrowse != nil {
-			explorerContent += "\n" + muted.Render("Opening "+m.pendingBrowse.tableName+"…") + "\n"
+			explorerContent += "\n" + muted.Render("Opening "+m.pendingBrowse.relation.DisplayName()+"…") + "\n"
 		}
 		if m.notice != "" {
 			explorerContent += "\n" + renderWorkspaceNotice(m.notice) + "\n"
@@ -932,7 +949,7 @@ func (m workspaceModel) View() string {
 		return clipWorkspaceView(top+"\n"+separator+"\n\n"+explorerContent+"\n"+footer, m.width, m.height)
 	}
 
-	context := muted.Render("public / ") + header.Render(m.selectedTable)
+	context := muted.Render(m.selectedRelation.Schema+" / ") + header.Render(m.selectedRelation.Name)
 	tabs := "Data  Structure  Query"
 	if m.tab == workspaceTabStructure {
 		tabs = muted.Render("Data") + "  " + header.Render("Structure") + "  " + muted.Render("Query")
@@ -942,7 +959,7 @@ func (m workspaceModel) View() string {
 	contentBody := ansi.Truncate(context+"    "+tabs, max(m.width, 1), "…") + "\n" + separator + "\n"
 	if m.filterEditing {
 		contentBody += m.filterInput.View() + "\n" + separator + "\n"
-	} else if m.selectedTable != "" {
+	} else if m.selectedRelation.Name != "" {
 		direction := "ASC"
 		if m.sortDescending {
 			direction = "DESC"
@@ -951,14 +968,14 @@ func (m workspaceModel) View() string {
 		if m.filterColumn != "" {
 			toolbar += "  •  Filter: " + m.filterColumn + " = " + m.filterValue
 		}
-		if m.keysetEnabled {
-			toolbar += "  •  keyset pagination"
+		if m.paginationReason != "" {
+			toolbar += "  •  " + m.paginationReason
 		}
 		contentBody += muted.Render(ansi.Truncate(toolbar, max(m.width, 1), "…")) + "\n" + separator + "\n"
 	}
 	contentBody += "\n"
 	if m.loading && m.pendingBrowse != nil {
-		contentBody += muted.Render("Loading · "+m.pendingBrowse.tableName+"…  Ctrl+X cancel") + "\n"
+		contentBody += muted.Render("Loading · "+m.pendingBrowse.relation.DisplayName()+"…  Ctrl+X cancel") + "\n"
 	}
 	if m.notice != "" {
 		contentBody += renderWorkspaceNotice(m.notice) + "\n"

@@ -137,7 +137,7 @@ func TestIntegrationSchemaDiscoveryAndPagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("browse first keyset page: %v", err)
 	}
-	if !firstPage.KeysetEnabled || !firstPage.HasNext || firstPage.NextCursor != "2" || firstPage.Rows[0][0].Text != "1" {
+	if !firstPage.KeysetEnabled || !firstPage.HasNext || firstPage.NextCursor == nil || firstPage.NextCursor.Values[0].Text != "2" || firstPage.Rows[0][0].Text != "1" {
 		t.Fatalf("unexpected first keyset page: %#v", firstPage)
 	}
 	if len(firstPage.Structure) != 4 || firstPage.Structure[0].Name != "id" {
@@ -165,7 +165,7 @@ func TestIntegrationSchemaDiscoveryAndPagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("browse sorted rows: %v", err)
 	}
-	if sorted.KeysetEnabled || sorted.Rows[0][1].Text != "record-5" || sorted.Rows[1][1].Text != "record-4" {
+	if !sorted.KeysetEnabled || sorted.Rows[0][1].Text != "record-5" || sorted.Rows[1][1].Text != "record-4" {
 		t.Fatalf("unexpected custom sort: %#v", sorted)
 	}
 	if _, err := BrowseTable(database, tableName, TableBrowseRequest{FilterColumn: "id; DROP TABLE unsafe", FilterValue: "1"}); err == nil {
@@ -186,7 +186,7 @@ func TestIntegrationSchemaDiscoveryAndPagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get table structure: %v", err)
 	}
-	if len(structure) != 4 || structure[0].Name != "id" || !structure[0].PrimaryKey || !structure[3].Nullable {
+	if len(structure) != 4 || structure[0].Name != "id" || !structure[0].PrimaryKey || structure[0].PrimaryKeyPosition != 1 || !structure[3].Nullable {
 		t.Fatalf("unexpected table structure: %#v", structure)
 	}
 
@@ -199,6 +199,173 @@ func TestIntegrationSchemaDiscoveryAndPagination(t *testing.T) {
 	}
 	if got := cache.Columns[tableName]; !slices.Equal(got, []string{"id", "name", "enabled", "note"}) {
 		t.Fatalf("unexpected cached columns: %v", got)
+	}
+}
+
+func TestIntegrationSchemaQualifiedRelations(t *testing.T) {
+	database, _ := openIntegrationDatabase(t)
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	schemaName := "Team Space " + suffix
+	tableName := "Order.Items " + suffix
+	relation := Relation{Schema: schemaName, Name: tableName}
+	publicRelation := Relation{Schema: "public", Name: tableName}
+
+	if _, err := database.Exec("CREATE SCHEMA " + pq.QuoteIdentifier(schemaName)); err != nil {
+		t.Fatalf("create quoted schema: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = database.Exec("DROP TABLE IF EXISTS " + publicRelation.QualifiedName())
+		_, _ = database.Exec("DROP SCHEMA IF EXISTS " + pq.QuoteIdentifier(schemaName) + " CASCADE")
+	})
+	createTable := func(target Relation) {
+		t.Helper()
+		_, err := database.Exec("CREATE TABLE " + target.QualifiedName() + ` (
+			"Record ID" BIGINT PRIMARY KEY,
+			"Status Code" TEXT NOT NULL
+		)`)
+		if err != nil {
+			t.Fatalf("create %s: %v", target.DisplayName(), err)
+		}
+	}
+	createTable(relation)
+	createTable(publicRelation)
+	if _, err := database.Exec("INSERT INTO "+relation.QualifiedName()+` ("Record ID", "Status Code") VALUES ($1, $2)`, 1, "schema-row"); err != nil {
+		t.Fatalf("insert schema row: %v", err)
+	}
+	if _, err := database.Exec("INSERT INTO "+publicRelation.QualifiedName()+` ("Record ID", "Status Code") VALUES ($1, $2)`, 1, "public-row"); err != nil {
+		t.Fatalf("insert public row: %v", err)
+	}
+
+	relations, err := GetRelations(database)
+	if err != nil {
+		t.Fatalf("discover relations: %v", err)
+	}
+	if !slices.Contains(relations, relation) || !slices.Contains(relations, publicRelation) {
+		t.Fatalf("schema-qualified duplicates were not discovered: %#v", relations)
+	}
+	page, err := BrowseRelation(database, relation, TableBrowseRequest{
+		Limit: 10, FilterColumn: "Status Code", FilterValue: "schema-row",
+	})
+	if err != nil {
+		t.Fatalf("browse quoted relation: %v", err)
+	}
+	if len(page.Rows) != 1 || page.Rows[0][1].Text != "schema-row" || page.Structure[1].Name != "Status Code" {
+		t.Fatalf("wrong schema relation was browsed: %#v", page)
+	}
+	publicPage, err := BrowseRelation(database, publicRelation, TableBrowseRequest{Limit: 10})
+	if err != nil || len(publicPage.Rows) != 1 || publicPage.Rows[0][1].Text != "public-row" {
+		t.Fatalf("duplicate public relation was confused with schema relation: page=%#v err=%v", publicPage, err)
+	}
+	parameterized, err := BrowseRelation(database, relation, TableBrowseRequest{
+		Limit: 10, FilterColumn: "Status Code", FilterValue: `schema-row' OR true --`,
+	})
+	if err != nil || len(parameterized.Rows) != 0 {
+		t.Fatalf("filter value was not treated as a parameter: page=%#v err=%v", parameterized, err)
+	}
+	if _, err := BrowseRelation(database, relation, TableBrowseRequest{FilterColumn: `Status Code" OR true --`, FilterValue: "x"}); err == nil {
+		t.Fatal("unknown injected column identifier was accepted")
+	}
+}
+
+func TestIntegrationTypedCursorSupportsEmptyValuesAndRejectsWrongScope(t *testing.T) {
+	database, _ := openIntegrationDatabase(t)
+	relation := Relation{Schema: "public", Name: uniqueDatabaseObject("text_cursor")}
+	t.Cleanup(func() { _, _ = database.Exec("DROP TABLE IF EXISTS " + relation.QualifiedName()) })
+	if _, err := database.Exec("CREATE TABLE " + relation.QualifiedName() + " (code TEXT PRIMARY KEY)"); err != nil {
+		t.Fatalf("create text cursor fixture: %v", err)
+	}
+	if _, err := database.Exec("INSERT INTO "+relation.QualifiedName()+" (code) VALUES ($1), ($2)", "", "after-empty"); err != nil {
+		t.Fatalf("insert text cursor fixture: %v", err)
+	}
+
+	first, err := BrowseRelation(database, relation, TableBrowseRequest{Limit: 1, ConnectionID: 41})
+	if err != nil {
+		t.Fatalf("browse first text cursor page: %v", err)
+	}
+	if first.NextCursor == nil || first.NextCursor.Values[0].IsNull || first.NextCursor.Values[0].Text != "" || first.NextCursor.Values[0].Raw == nil {
+		t.Fatalf("empty cursor was confused with an absent cursor: %#v", first.NextCursor)
+	}
+	second, err := BrowseRelation(database, relation, TableBrowseRequest{Limit: 1, ConnectionID: 41, Cursor: first.NextCursor})
+	if err != nil || len(second.Rows) != 1 || second.Rows[0][0].Text != "after-empty" {
+		t.Fatalf("empty-valued cursor did not advance: page=%#v err=%v", second, err)
+	}
+
+	wrongConnection := first.NextCursor.Clone()
+	if _, err := BrowseRelation(database, relation, TableBrowseRequest{Limit: 1, ConnectionID: 42, Cursor: wrongConnection}); err == nil {
+		t.Fatal("cursor from another connection was accepted")
+	}
+	wrongRelation := Relation{Schema: relation.Schema, Name: relation.Name + "_other"}
+	if _, err := BrowseRelation(database, wrongRelation, TableBrowseRequest{Limit: 1, ConnectionID: 41, Cursor: first.NextCursor}); err == nil || !strings.Contains(err.Error(), "cursor does not belong") {
+		t.Fatalf("cursor from another relation was not rejected by scope: %v", err)
+	}
+}
+
+func TestIntegrationStableOrderingAndPaginationFallbacks(t *testing.T) {
+	database, _ := openIntegrationDatabase(t)
+	composite := Relation{Schema: "public", Name: uniqueDatabaseObject("composite_cursor")}
+	keyless := Relation{Schema: "public", Name: uniqueDatabaseObject("keyless_cursor")}
+	t.Cleanup(func() {
+		_, _ = database.Exec("DROP TABLE IF EXISTS " + composite.QualifiedName())
+		_, _ = database.Exec("DROP TABLE IF EXISTS " + keyless.QualifiedName())
+	})
+	if _, err := database.Exec("CREATE TABLE " + composite.QualifiedName() + ` (
+		tenant_id BIGINT NOT NULL,
+		sequence_id BIGINT NOT NULL,
+		rank BIGINT NOT NULL,
+		note TEXT,
+		PRIMARY KEY (tenant_id, sequence_id)
+	)`); err != nil {
+		t.Fatalf("create composite fixture: %v", err)
+	}
+	if _, err := database.Exec("INSERT INTO " + composite.QualifiedName() + ` (tenant_id, sequence_id, rank, note) VALUES
+		(1, 1, 10, 'first'), (1, 2, 10, NULL), (2, 1, 10, 'third'),
+		(2, 2, 20, NULL), (3, 1, 20, 'fifth')`); err != nil {
+		t.Fatalf("insert composite fixture: %v", err)
+	}
+
+	first, err := BrowseRelation(database, composite, TableBrowseRequest{Limit: 2, ConnectionID: 77, SortColumn: "rank"})
+	if err != nil {
+		t.Fatalf("browse stable custom sort: %v", err)
+	}
+	if first.PaginationMode != PaginationKeyset || !first.StableOrdering ||
+		!slices.Equal(first.OrderColumns, []string{"rank", "tenant_id", "sequence_id"}) || first.NextCursor == nil ||
+		len(first.NextCursor.Values) != 3 {
+		t.Fatalf("custom sort did not include the complete primary-key tie-breaker: %#v", first)
+	}
+	second, err := BrowseRelation(database, composite, TableBrowseRequest{
+		Limit: 2, ConnectionID: 77, SortColumn: "rank", Cursor: first.NextCursor,
+	})
+	if err != nil || len(second.Rows) != 2 || second.Rows[0][0].Text != "2" || second.Rows[0][1].Text != "1" {
+		t.Fatalf("custom-sort cursor skipped or duplicated rows: page=%#v err=%v", second, err)
+	}
+
+	descending, err := BrowseRelation(database, composite, TableBrowseRequest{Limit: 2, ConnectionID: 78, Descending: true})
+	if err != nil || descending.NextCursor == nil || descending.Rows[0][0].Text != "3" || descending.Rows[1][0].Text != "2" {
+		t.Fatalf("descending composite-key page was not deterministic: page=%#v err=%v", descending, err)
+	}
+	descendingNext, err := BrowseRelation(database, composite, TableBrowseRequest{
+		Limit: 2, ConnectionID: 78, Descending: true, Cursor: descending.NextCursor,
+	})
+	if err != nil || len(descendingNext.Rows) != 2 || descendingNext.Rows[0][0].Text != "2" || descendingNext.Rows[0][1].Text != "1" || descendingNext.Rows[1][0].Text != "1" || descendingNext.Rows[1][1].Text != "2" {
+		t.Fatalf("descending composite cursor skipped or duplicated rows: page=%#v err=%v", descendingNext, err)
+	}
+
+	nullable, err := BrowseRelation(database, composite, TableBrowseRequest{Limit: 3, SortColumn: "note"})
+	if err != nil || nullable.PaginationMode != PaginationOffset || !nullable.StableOrdering || nullable.KeysetEnabled ||
+		!strings.Contains(nullable.PaginationReason, "NULL") || nullable.Rows[0][3].IsNull {
+		t.Fatalf("nullable sort fallback was not explicit or NULLS LAST: page=%#v err=%v", nullable, err)
+	}
+
+	if _, err := database.Exec("CREATE TABLE " + keyless.QualifiedName() + " (label TEXT NOT NULL)"); err != nil {
+		t.Fatalf("create keyless fixture: %v", err)
+	}
+	if _, err := database.Exec("INSERT INTO " + keyless.QualifiedName() + " (label) VALUES ('same'), ('same')"); err != nil {
+		t.Fatalf("insert keyless fixture: %v", err)
+	}
+	unstable, err := BrowseRelation(database, keyless, TableBrowseRequest{Limit: 1})
+	if err != nil || unstable.PaginationMode != PaginationOffset || unstable.StableOrdering || unstable.KeysetEnabled ||
+		!strings.Contains(unstable.PaginationReason, "no primary key") {
+		t.Fatalf("keyless fallback overstated its ordering guarantees: page=%#v err=%v", unstable, err)
 	}
 }
 

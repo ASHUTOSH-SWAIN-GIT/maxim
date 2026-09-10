@@ -31,20 +31,17 @@ Based on repository inspection, not a new test or performance run:
 | Area | Available today | Work still needed |
 | --- | --- | --- |
 | Connections | Named profiles, host/port/database/SSL mode, password prompt | Connection lifecycle, read-only profiles, certificate configuration, recovery |
-| Workspace | Table navigator, Data/Structure, simple row peek, SQL editor shortcut | Responsive layout, consistent view navigation, request isolation, help |
+| Workspace | Multi-schema table navigator, Data/Structure, simple row peek, contextual help, SQL editor shortcut | Consistent view navigation and richer browsing controls |
 | Browsing | Bounded typed pages, equality filter, sort cycling | More filter types, wider-table navigation |
-| Pagination | Single-primary-key keyset path; offset fallback | Typed cursors, compound keys, stable tie-breaking, concurrency semantics |
+| Pagination | Scoped typed keyset cursors, compound keys, stable tie-breakers, explicit NULL placement, visible offset fallback | Resource bounds, large fixtures, and documented concurrency measurements |
 | Timeout | Shared deadlines for connection, metadata, browsing, and SQL; cancellation in workspace/editor | Reconnect behavior and cancellation coverage for future operations |
 | SQL | Async execution, cancellation, autocomplete, first 100 result rows displayed | Retained drafts, reliable SQL parsing, clear truncation/affected-row reporting |
-| Structure | Column type, nullability, default, primary-key indicator for public tables | Multiple schemas, foreign keys, indexes, constraints, comments |
+| Structure | Multi-schema column type, nullability, default, and primary-key metadata | Foreign keys, indexes, constraints, comments |
 | Delivery | Unit/race tests, PostgreSQL and Docker integration, platform CI, release workflow | Edge-case fixtures, interaction tests, benchmarks, release smoke tests |
 
 Known code issues to address first:
 
-- `internal/tui/workspace.go` accepts table responses without request identities. Rapid navigation can let an old response replace newer state; cursor history is changed before success.
-- `internal/db/browser.go` derives the cursor from a displayed string. Float formatting and timestamp formatting must never determine database cursor identity.
-- Offset fallback does not guarantee a unique order for tables without a single-column primary key. It can also shift under concurrent writes.
-- Metadata lookup assumes `public`, but data queries use an unqualified table name. Schema resolution must be consistent.
+- Offset fallback is visibly identified because it can shift under concurrent writes; tables without a primary key also cannot guarantee unique row order.
 - `internal/tui/sqlEditor.go` has a statement splitter that understands only basic single-quoted strings.
 - `internal/db/query_executor.go` stops displaying results at 100 rows, but this is not a database-work limit or a cancellation mechanism.
 
@@ -79,10 +76,10 @@ Done when: delayed responses, failed next-page loads, rapid repeated keys, switc
 Depends on Phase 0 request/state handling.
 
 - [x] **M1.1 Typed values:** separate raw values, null flags, metadata, and display text. Preserve numeric precision and timestamp identity; escape terminal control characters and truncate by display width safely.
-- [ ] **M1.2 Qualified identifiers:** represent schema and table separately and quote both. Validate user-selected columns against that exact table; bind filter values as parameters.
-- [ ] **M1.3 Cursor correctness:** use lossless cursor values and distinguish an absent cursor from an empty string. Bind cursors to the current connection, table, sort, and filter.
-- [ ] **M1.4 Stable ordering:** support composite primary keys; add unique tie-breakers for custom sorts. Define NULL placement and both traversal directions explicitly. Use keyset only where the ordering and types support it.
-- [ ] **M1.5 Honest fallback:** show when offset pagination is used and explain its limitations. Never promise stable row positions for changing data or a unique order where no usable key exists.
+- [x] **M1.2 Qualified identifiers:** represent schema and table separately and quote both. Validate user-selected columns against that exact table; bind filter values as parameters.
+- [x] **M1.3 Cursor correctness:** use lossless cursor values and distinguish an absent cursor from an empty string. Bind cursors to the current connection, table, sort, and filter.
+- [x] **M1.4 Stable ordering:** support composite primary keys; add unique tie-breakers for custom sorts. Define NULL placement and both traversal directions explicitly. Use keyset only where the ordering and types support it.
+- [x] **M1.5 Honest fallback:** show when offset pagination is used and explain its limitations. Never promise stable row positions for changing data or a unique order where no usable key exists.
 - [ ] **M1.6 Resource limits:** enforce page-size limits and configurable deadlines. Define byte limits and lazy/full-value retrieval for oversized cells; a 100-row limit alone does not bound memory.
 - [ ] **M1.7 Large fixtures:** add opt-in benchmarks with 100,000 and 1,000,000 rows, duplicate sort values, compound keys, nulls, long text, JSON, Unicode, and concurrent writes.
 
@@ -201,9 +198,9 @@ Do not start these unless recurring user feedback justifies changing the roadmap
 
 ## Current work
 
-- **Status:** Phase 0 and M1.1 complete; Phase 1 is in progress.
-- **Next item:** M1.2 — represent schema and table separately, quote both identifiers, and validate filters against that exact relation.
-- **Following items:** M1.3 cursor correctness; M1.4 stable ordering; M1.5 honest pagination fallback.
+- **Status:** Phase 0 and M1.1–M1.5 complete; Phase 1 is in progress.
+- **Next item:** M1.6 — define bounded oversized-cell handling and configurable resource limits before changing the fetch contract.
+- **Following items:** M1.7 large fixtures; then Phase 2 searchable navigation and richer browsing controls.
 - **First milestone:** reliable browsing foundation (Phases 0–1).
 - **Planning-only change:** this document does not implement the features above or authorize external releases, telemetry, or database writes.
 
@@ -220,3 +217,7 @@ Do not start these unless recurring user feedback justifies changing the roadmap
 | 2026-09-10 | M0.6 | Removed the rejected inspector implementation, dead editor helpers, and redundant focus state; made each browse response reuse the same discovered table structure for validation, rendering, and pagination. |
 | 2026-09-10 | M0.7 | Added contextual `?` help for workspace views and `F1` help inside typing modes; added visible loading cancellation plus distinct timeout, empty-result, permission-denied, generic-failure, and disconnected states. |
 | 2026-09-10 | M1.1 | Added typed cells to table browsing and SQL results with copied raw values, PostgreSQL type names, explicit NULL identity, exact numeric/timestamp text, byte encoding, terminal-control escaping, and display-width-safe grid/peek rendering; verified with unit and disposable PostgreSQL integration fixtures. |
+| 2026-09-10 | M1.2 | Added schema-qualified relation identities, multi-schema discovery, separately quoted schema/table/column SQL, exact-relation metadata validation, qualified workspace labels, and cross-schema autocomplete; verified duplicate and quoted names plus parameter and identifier injection cases against disposable PostgreSQL. |
+| 2026-09-10 | M1.3 | Replaced display-string cursors with cloned typed raw values; distinguished nil cursors from empty-string keys; scoped cursors to connection, relation, sort direction, and filter; rejected mismatches before data access; verified empty-text traversal and cross-scope rejection against disposable PostgreSQL. |
+| 2026-09-10 | M1.4 | Added ordered composite-primary-key metadata and multi-value cursors; appended the complete primary key as a unique custom-sort tie-breaker; made ascending/descending and NULLS LAST semantics explicit; verified duplicate values and compound-key traversal against disposable PostgreSQL. |
+| 2026-09-10 | M1.5 | Added explicit keyset/offset mode, stability, ordering-column, and fallback-reason results; surfaced fallback limitations in the workspace; verified nullable-sort and keyless-table behavior with unit and PostgreSQL integration tests. |

@@ -20,6 +20,14 @@ type CellValue struct {
 
 type DataRow []CellValue
 
+func (cell CellValue) Clone() CellValue {
+	cloned := cell
+	if value, ok := cell.Raw.([]byte); ok {
+		cloned.Raw = append([]byte(nil), value...)
+	}
+	return cloned
+}
+
 func newCellValue(raw any, databaseTypeName string) CellValue {
 	cell := CellValue{DatabaseTypeName: strings.ToUpper(databaseTypeName), IsNull: raw == nil}
 	if raw == nil {

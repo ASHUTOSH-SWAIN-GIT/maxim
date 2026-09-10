@@ -266,6 +266,7 @@ out after 30 seconds and run without blocking workspace input.
 
 In the database workspace:
 
+- Tables are listed with their schema, such as `public.users` or `billing.users`
 - `j/k` or `Up/Down` - Select a table
 - `Enter` - Load the selected table
 - `b` - Show or hide the table navigator
@@ -286,6 +287,15 @@ connection states are shown separately so failures are not mistaken for empty da
 Database values retain their PostgreSQL type and raw identity until display. SQL
 `NULL`, text `"NULL"`, and empty text are distinct; long Unicode and control
 characters are rendered safely without changing numeric precision or timestamps.
+Schema and table names are tracked separately and quoted independently, so Maxim
+can safely browse multiple schemas, duplicate table names, and quoted names that
+contain spaces, capitals, dots, or PostgreSQL keywords.
+Keyset pagination keeps every raw typed ordering value and binds each cursor to
+its connection, schema/table, sort direction, and filter. Composite primary keys
+and full primary-key tie-breakers keep duplicate custom-sort values stable in
+both directions. NULL values are always placed last. Maxim visibly falls back to
+offset pagination when a nullable sort or missing primary key prevents safe
+keyset traversal, including a warning about shifting or non-unique row order.
 - `Esc` - Return from the row peek to the data grid
 - `/` - Apply a server-side `column=value` filter
 - `s` - Cycle the sort column

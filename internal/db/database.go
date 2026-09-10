@@ -22,11 +22,12 @@ type ConnectionOptions struct {
 }
 
 type TableColumnInfo struct {
-	Name       string
-	DataType   string
-	Nullable   bool
-	Default    string
-	PrimaryKey bool
+	Name               string
+	DataType           string
+	Nullable           bool
+	Default            string
+	PrimaryKey         bool
+	PrimaryKeyPosition int
 }
 
 var supportedSSLModes = map[string]bool{
@@ -152,24 +153,49 @@ func GetTables(db *sql.DB) ([]string, error) {
 }
 
 func GetTablesContext(ctx context.Context, db *sql.DB) ([]string, error) {
+	relations, err := GetRelationsContext(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	tableNames := make([]string, 0)
+	for _, relation := range relations {
+		if relation.Schema == "public" {
+			tableNames = append(tableNames, relation.Name)
+		}
+	}
+	return tableNames, nil
+}
+
+func GetRelations(db *sql.DB) ([]Relation, error) {
+	return GetRelationsContext(context.Background(), db)
+}
+
+func GetRelationsContext(ctx context.Context, db *sql.DB) ([]Relation, error) {
 	ctx, cancel := context.WithTimeout(ctx, MetadataTimeout)
 	defer cancel()
-	query := "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public';"
+	const query = `
+		SELECT n.nspname, c.relname
+		FROM pg_catalog.pg_class c
+		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		WHERE c.relkind IN ('r', 'p')
+		  AND n.nspname <> 'information_schema'
+		  AND n.nspname !~ '^pg_'
+		ORDER BY n.nspname, c.relname`
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var tableNames []string
+	var relations []Relation
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var relation Relation
+		if err := rows.Scan(&relation.Schema, &relation.Name); err != nil {
 			return nil, err
 		}
-		tableNames = append(tableNames, name)
+		relations = append(relations, relation)
 	}
-	return tableNames, nil
+	return relations, rows.Err()
 }
 
 func GetTableData(db *sql.DB, tableName string) ([]table.Column, []table.Row, error) {
@@ -363,7 +389,8 @@ func GetAllColumnsContext(parent context.Context, db *sql.DB) ([]string, error) 
 	query := `
 		SELECT DISTINCT column_name 
 		FROM information_schema.columns 
-		WHERE table_schema = 'public' 
+		WHERE table_schema <> 'information_schema'
+		  AND table_schema !~ '^pg_'
 		ORDER BY column_name
 	`
 
@@ -394,10 +421,12 @@ func GetAllTablesContext(parent context.Context, db *sql.DB) ([]string, error) {
 	ctx, cancel := context.WithTimeout(parent, MetadataTimeout)
 	defer cancel()
 	query := `
-		SELECT table_name 
+		SELECT quote_ident(table_schema) || '.' || quote_ident(table_name)
 		FROM information_schema.tables 
-		WHERE table_schema = 'public' 
-		ORDER BY table_name
+		WHERE table_type = 'BASE TABLE'
+		  AND table_schema <> 'information_schema'
+		  AND table_schema !~ '^pg_'
+		ORDER BY table_schema, table_name
 	`
 
 	rows, err := db.QueryContext(ctx, query)
@@ -420,10 +449,21 @@ func GetAllTablesContext(parent context.Context, db *sql.DB) ([]string, error) {
 
 // GetTableStructure returns column metadata for a table in the public schema.
 func GetTableStructure(db *sql.DB, tableName string) ([]TableColumnInfo, error) {
-	return GetTableStructureContext(context.Background(), db, tableName)
+	return GetRelationStructureContext(context.Background(), db, Relation{Schema: "public", Name: tableName})
 }
 
 func GetTableStructureContext(ctx context.Context, db *sql.DB, tableName string) ([]TableColumnInfo, error) {
+	return GetRelationStructureContext(ctx, db, Relation{Schema: "public", Name: tableName})
+}
+
+func GetRelationStructure(db *sql.DB, relation Relation) ([]TableColumnInfo, error) {
+	return GetRelationStructureContext(context.Background(), db, relation)
+}
+
+func GetRelationStructureContext(ctx context.Context, db *sql.DB, relation Relation) ([]TableColumnInfo, error) {
+	if err := relation.Validate(); err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, MetadataTimeout)
 	defer cancel()
 	const query = `
@@ -431,8 +471,8 @@ func GetTableStructureContext(ctx context.Context, db *sql.DB, tableName string)
 		       c.data_type,
 		       c.is_nullable = 'YES',
 		       COALESCE(c.column_default, ''),
-		       EXISTS (
-		           SELECT 1
+		       COALESCE((
+		           SELECT kcu.ordinal_position
 		           FROM information_schema.table_constraints tc
 		           JOIN information_schema.key_column_usage kcu
 		             ON tc.constraint_name = kcu.constraint_name
@@ -441,12 +481,12 @@ func GetTableStructureContext(ctx context.Context, db *sql.DB, tableName string)
 		             AND tc.table_schema = c.table_schema
 		             AND tc.table_name = c.table_name
 		             AND kcu.column_name = c.column_name
-		       )
+		       ), 0)
 		FROM information_schema.columns c
-		WHERE c.table_schema = 'public' AND c.table_name = $1
+		WHERE c.table_schema = $1 AND c.table_name = $2
 		ORDER BY c.ordinal_position`
 
-	rows, err := db.QueryContext(ctx, query, tableName)
+	rows, err := db.QueryContext(ctx, query, relation.Schema, relation.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -455,9 +495,10 @@ func GetTableStructureContext(ctx context.Context, db *sql.DB, tableName string)
 	var columns []TableColumnInfo
 	for rows.Next() {
 		var column TableColumnInfo
-		if err := rows.Scan(&column.Name, &column.DataType, &column.Nullable, &column.Default, &column.PrimaryKey); err != nil {
+		if err := rows.Scan(&column.Name, &column.DataType, &column.Nullable, &column.Default, &column.PrimaryKeyPosition); err != nil {
 			return nil, err
 		}
+		column.PrimaryKey = column.PrimaryKeyPosition > 0
 		columns = append(columns, column)
 	}
 	return columns, rows.Err()

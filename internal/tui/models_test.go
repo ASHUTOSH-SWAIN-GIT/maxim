@@ -30,6 +30,20 @@ func testDataRow(values ...string) db.DataRow {
 	return row
 }
 
+func testRelation(name string) db.Relation {
+	return db.Relation{Schema: "public", Name: name}
+}
+
+func testCursor(connectionID uint64, relation db.Relation, sortColumn, value string) *db.TableCursor {
+	return &db.TableCursor{
+		Values:       []db.CellValue{{Raw: value, DatabaseTypeName: "BIGINT", Text: value}},
+		OrderColumns: []string{sortColumn},
+		ConnectionID: connectionID,
+		Relation:     relation,
+		SortColumn:   sortColumn,
+	}
+}
+
 func TestMainMenuNavigationAndSelection(t *testing.T) {
 	model := initialMainMenuModel()
 	updated, _ := model.Update(key(tea.KeyDown))
@@ -341,7 +355,7 @@ func TestWorkspaceNavigationAndTableContent(t *testing.T) {
 	model := initialWorkspaceModel(nil, "maxim_demo", "maxim@localhost:5432")
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
 	model = updated.(workspaceModel)
-	updated, _ = model.Update(workspaceTablesLoadedMsg{requestID: 1, tables: []string{"customers", "orders"}})
+	updated, _ = model.Update(workspaceTablesLoadedMsg{requestID: 1, tables: []db.Relation{testRelation("customers"), {Schema: "billing", Name: "orders"}}})
 	model = updated.(workspaceModel)
 	if model.loading || len(model.tables) != 2 {
 		t.Fatalf("tables did not load: %#v", model)
@@ -354,25 +368,25 @@ func TestWorkspaceNavigationAndTableContent(t *testing.T) {
 	}
 	updated, command := model.Update(key(tea.KeyEnter))
 	model = updated.(workspaceModel)
-	if !model.loading || command == nil || !model.navigatorOpen || model.selectedTable != "" {
+	if !model.loading || command == nil || !model.navigatorOpen || model.selectedRelation.Name != "" {
 		t.Fatal("opening a table changed navigation state before loading succeeded")
 	}
 
 	loaded := workspaceTableLoadedMsg{
 		requestID: 2,
-		tableName: "orders",
+		relation:  db.Relation{Schema: "billing", Name: "orders"},
 		structure: []db.TableColumnInfo{{Name: "id", DataType: "bigint", PrimaryKey: true}},
 		columns:   []table.Column{{Title: "id"}, {Title: "status"}},
 		rows:      []db.DataRow{testDataRow("1", "paid")},
 	}
 	updated, _ = model.Update(loaded)
 	model = updated.(workspaceModel)
-	if model.selectedTable != "orders" || model.navigatorOpen || !strings.Contains(model.content.View(), "Data · orders") {
+	if model.selectedRelation != (db.Relation{Schema: "billing", Name: "orders"}) || model.navigatorOpen || !strings.Contains(model.content.View(), "Data · billing.orders") {
 		t.Fatalf("table data did not open: %q", model.content.View())
 	}
 	updated, _ = model.Update(key(tea.KeyEnter))
 	model = updated.(workspaceModel)
-	if !model.rowPeek || !strings.Contains(model.content.View(), "Row 1 · orders") || !strings.Contains(model.content.View(), "status  paid") {
+	if !model.rowPeek || !strings.Contains(model.content.View(), "Row 1 · billing.orders") || !strings.Contains(model.content.View(), "status  paid") {
 		t.Fatalf("row peek did not open: %q", model.content.View())
 	}
 	updated, _ = model.Update(key(tea.KeyEsc))
@@ -383,7 +397,7 @@ func TestWorkspaceNavigationAndTableContent(t *testing.T) {
 
 	updated, _ = model.Update(key(tea.KeyTab))
 	model = updated.(workspaceModel)
-	if model.tab != workspaceTabStructure || !strings.Contains(model.content.View(), "Structure · orders") {
+	if model.tab != workspaceTabStructure || !strings.Contains(model.content.View(), "Structure · billing.orders") {
 		t.Fatalf("structure tab did not activate: tab=%d content=%q", model.tab, model.content.View())
 	}
 	if view := model.View(); !strings.Contains(view, "MAXIM") || !strings.Contains(view, "connected") {
@@ -407,9 +421,9 @@ func TestWorkspaceErrorsAndResponsiveLayout(t *testing.T) {
 
 func TestWorkspaceSupportsEightyByTwentyFourAndSmallTerminalFallback(t *testing.T) {
 	model := initialWorkspaceModel(nil, "app", "user@host:5432")
-	model.tables = make([]string, 40)
+	model.tables = make([]db.Relation, 40)
 	for index := range model.tables {
-		model.tables[index] = fmt.Sprintf("table_%02d", index)
+		model.tables[index] = testRelation(fmt.Sprintf("table_%02d", index))
 	}
 	model.cursor = 20
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -420,7 +434,7 @@ func TestWorkspaceSupportsEightyByTwentyFourAndSmallTerminalFallback(t *testing.
 	}
 
 	model.navigatorOpen = false
-	model.selectedTable = "orders"
+	model.selectedRelation = testRelation("orders")
 	model.structure = []db.TableColumnInfo{{Name: "id", PrimaryKey: true}, {Name: "status"}}
 	model.columns = []table.Column{{Title: "id"}, {Title: "status"}}
 	model.rows = []db.DataRow{testDataRow("1", "paid"), testDataRow("2", "shipped")}
@@ -438,7 +452,7 @@ func TestWorkspaceSupportsEightyByTwentyFourAndSmallTerminalFallback(t *testing.
 	assertViewFits(t, model.View(), 80, 24)
 	model.filterEditing = false
 	model.loading = true
-	model.pendingBrowse = &workspaceBrowseIntent{tableName: "orders"}
+	model.pendingBrowse = &workspaceBrowseIntent{relation: testRelation("orders")}
 	model.notice = strings.Repeat("database error ", 20)
 	assertViewFits(t, model.View(), 80, 24)
 	model.loading = false
@@ -472,7 +486,7 @@ func TestWorkspaceRowPeekWrapsScrollsAndRestoresGridPosition(t *testing.T) {
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model = updated.(workspaceModel)
 	model.navigatorOpen = false
-	model.selectedTable = "events"
+	model.selectedRelation = testRelation("events")
 	for index := 0; index < 12; index++ {
 		model.columns = append(model.columns, table.Column{Title: fmt.Sprintf("long_column_%02d", index)})
 	}
@@ -554,7 +568,7 @@ func assertViewFits(t *testing.T, view string, width, height int) {
 func TestWorkspaceFilterAndSortControls(t *testing.T) {
 	model := initialWorkspaceModel(nil, "app", "user@host:5432")
 	model.navigatorOpen = false
-	model.selectedTable = "orders"
+	model.selectedRelation = testRelation("orders")
 	model.structure = []db.TableColumnInfo{{Name: "id", PrimaryKey: true}, {Name: "status"}}
 	model.sortColumn = "id"
 
@@ -570,7 +584,7 @@ func TestWorkspaceFilterAndSortControls(t *testing.T) {
 		t.Fatalf("filter was not staged: %#v", model)
 	}
 	updated, _ = model.Update(workspaceTableLoadedMsg{
-		requestID: 2, tableName: "orders", structure: model.structure,
+		requestID: 2, relation: testRelation("orders"), structure: model.structure,
 		columns: []table.Column{{Title: "id"}, {Title: "status"}}, rows: []db.DataRow{testDataRow("1", "paid")},
 		sortColumn: "id", filterColumn: "status", filterValue: "paid",
 	})
@@ -585,7 +599,7 @@ func TestWorkspaceFilterAndSortControls(t *testing.T) {
 		t.Fatalf("sort column was not staged: %#v", model)
 	}
 	updated, _ = model.Update(workspaceTableLoadedMsg{
-		requestID: 3, tableName: "orders", structure: model.structure,
+		requestID: 3, relation: testRelation("orders"), structure: model.structure,
 		columns: model.columns, rows: model.rows, sortColumn: "status",
 		filterColumn: "status", filterValue: "paid",
 	})
@@ -601,43 +615,43 @@ func TestWorkspaceRequestLifecycle(t *testing.T) {
 	model := initialWorkspaceModel(nil, "app", "user@host:5432")
 	model.activeRequestID = 3
 	model.nextRequestID = 3
-	model.selectedTable = "current"
+	model.selectedRelation = testRelation("current")
 	model.loading = true
 
 	updated, _ := model.Update(workspaceTableLoadedMsg{
-		requestID: 2, tableName: "stale", rows: []db.DataRow{testDataRow("old")},
+		requestID: 2, relation: testRelation("stale"), rows: []db.DataRow{testDataRow("old")},
 	})
 	model = updated.(workspaceModel)
-	if model.selectedTable != "current" || !model.loading {
+	if model.selectedRelation != testRelation("current") || !model.loading {
 		t.Fatalf("stale response changed workspace state: %#v", model)
 	}
 
 	model.filterEditing = true
 	updated, _ = model.Update(workspaceTableLoadedMsg{
-		requestID: 3, tableName: "latest", columns: []table.Column{{Title: "id"}}, rows: []db.DataRow{testDataRow("1")},
+		requestID: 3, relation: testRelation("latest"), columns: []table.Column{{Title: "id"}}, rows: []db.DataRow{testDataRow("1")},
 	})
 	model = updated.(workspaceModel)
-	if model.selectedTable != "latest" || model.loading || !model.filterEditing || model.activeRequestID != 0 {
+	if model.selectedRelation != testRelation("latest") || model.loading || !model.filterEditing || model.activeRequestID != 0 {
 		t.Fatalf("current response was not handled while filter was open: %#v", model)
 	}
 
 	cancelled := false
 	model.requestCancel = func() { cancelled = true }
-	command := model.startBrowse(workspaceBrowseIntent{tableName: "latest", request: db.TableBrowseRequest{Limit: 100}})
+	command := model.startBrowse(workspaceBrowseIntent{relation: testRelation("latest"), request: db.TableBrowseRequest{Limit: 100}})
 	if !cancelled || command == nil || model.activeRequestID != 4 || !model.loading {
 		t.Fatalf("replacement request did not cancel and advance: cancelled=%t id=%d loading=%t", cancelled, model.activeRequestID, model.loading)
 	}
 	model.filterEditing = false
 	model.mode = workspaceModeEditor
 	updated, _ = model.Update(workspaceTableLoadedMsg{
-		requestID: 4, tableName: "editor-result", columns: []table.Column{{Title: "id"}}, rows: []db.DataRow{testDataRow("2")},
+		requestID: 4, relation: testRelation("editor-result"), columns: []table.Column{{Title: "id"}}, rows: []db.DataRow{testDataRow("2")},
 	})
 	model = updated.(workspaceModel)
-	if model.selectedTable != "editor-result" || model.loading {
+	if model.selectedRelation != testRelation("editor-result") || model.loading {
 		t.Fatalf("current response was not handled while editor was open: %#v", model)
 	}
 
-	command = model.startBrowse(workspaceBrowseIntent{tableName: "editor-result", request: db.TableBrowseRequest{Limit: 100}})
+	command = model.startBrowse(workspaceBrowseIntent{relation: testRelation("editor-result"), request: db.TableBrowseRequest{Limit: 100}})
 	if command == nil || model.activeRequestID != 5 {
 		t.Fatalf("next request did not advance after completion: id=%d", model.activeRequestID)
 	}
@@ -650,15 +664,15 @@ func TestWorkspaceRequestLifecycle(t *testing.T) {
 func TestWorkspaceFailedPagePreservesCommittedStateAndRetries(t *testing.T) {
 	model := initialWorkspaceModel(nil, "app", "user@host:5432")
 	model.navigatorOpen = false
-	model.selectedTable = "orders"
+	model.selectedRelation = testRelation("orders")
 	model.columns = []table.Column{{Title: "id"}}
 	model.rows = []db.DataRow{testDataRow("100")}
 	model.offset = 0
 	model.hasNext = true
-	model.nextCursor = "100"
+	model.nextCursor = testCursor(model.connectionID, model.selectedRelation, "id", "100")
 	model.keysetEnabled = true
 	model.sortColumn = "id"
-	model.cursorHistory = []string{}
+	model.cursorHistory = []*db.TableCursor{}
 	model.refreshContent()
 
 	updated, command := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
@@ -667,7 +681,7 @@ func TestWorkspaceFailedPagePreservesCommittedStateAndRetries(t *testing.T) {
 		t.Fatalf("next page changed committed state before success: %#v", model)
 	}
 
-	updated, _ = model.Update(workspaceTableLoadedMsg{requestID: 2, tableName: "orders", offset: 100, err: errors.New("timeout")})
+	updated, _ = model.Update(workspaceTableLoadedMsg{requestID: 2, relation: testRelation("orders"), offset: 100, err: errors.New("timeout")})
 	model = updated.(workspaceModel)
 	if model.offset != 0 || len(model.cursorHistory) != 0 || model.rows[0][0].Text != "100" || model.failedBrowse == nil {
 		t.Fatalf("failed page replaced committed state: %#v", model)
@@ -678,8 +692,26 @@ func TestWorkspaceFailedPagePreservesCommittedStateAndRetries(t *testing.T) {
 
 	updated, command = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
 	model = updated.(workspaceModel)
-	if command == nil || model.activeRequestID != 3 || model.pendingBrowse == nil || model.pendingBrowse.request.Cursor != "100" {
+	if command == nil || model.activeRequestID != 3 || model.pendingBrowse == nil || model.pendingBrowse.request.Cursor == nil || model.pendingBrowse.request.Cursor.Values[0].Text != "100" {
 		t.Fatalf("retry did not restore failed request: %#v", model)
+	}
+}
+
+func TestWorkspaceShowsPaginationGuarantee(t *testing.T) {
+	model := initialWorkspaceModel(nil, "app", "user@host:5432")
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 140, Height: 30})
+	model = updated.(workspaceModel)
+	model.navigatorOpen = false
+	model.selectedRelation = testRelation("events")
+	model.columns = []table.Column{{Title: "label"}}
+	model.rows = []db.DataRow{testDataRow("same")}
+	model.sortColumn = "label"
+	model.paginationReason = "offset pagination: this table has no primary key, so row order may not be unique"
+	model.refreshContent()
+
+	view := model.View()
+	if !strings.Contains(view, "offset pagination") || !strings.Contains(view, "no primary key") {
+		t.Fatalf("pagination limitation was hidden from the user: %q", view)
 	}
 }
 
@@ -697,7 +729,7 @@ func TestWorkspaceContextualHelpDoesNotCaptureEditorTyping(t *testing.T) {
 	}
 
 	model.navigatorOpen = false
-	model.selectedTable = "orders"
+	model.selectedRelation = testRelation("orders")
 	model.columns = []table.Column{{Title: "id"}}
 	model.rows = []db.DataRow{testDataRow("1")}
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
