@@ -272,6 +272,8 @@ In the database workspace:
 - `Tab` - Switch between data and structure
 - `Up/Down` or `j/k` - Select a row in the data grid
 - `Enter` - Peek at every field and the full value for the selected row
+- While peeking: `Up/Down` scrolls wrapped fields, `PgUp/PgDn` scrolls a page,
+  and `Esc` returns to the same row and grid position
 
 The workspace supports terminals from **60×18** upward and is tested at the
 common **80×24** size. If the terminal becomes smaller, Maxim keeps the active

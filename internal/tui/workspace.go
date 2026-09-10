@@ -75,48 +75,49 @@ type workspaceBrowseIntent struct {
 }
 
 type workspaceModel struct {
-	db               *sql.DB
-	dbName           string
-	connectionLabel  string
-	changeConnection bool
-	mode             workspaceMode
-	focus            workspaceFocus
-	navigatorOpen    bool
-	tab              workspaceTab
-	tables           []string
-	cursor           int
-	selectedTable    string
-	structure        []db.TableColumnInfo
-	columns          []table.Column
-	rows             []table.Row
-	rowCursor        int
-	rowPeek          bool
-	pageSize         int
-	offset           int
-	hasNext          bool
-	nextCursor       string
-	keysetEnabled    bool
-	cursorHistory    []string
-	sortColumn       string
-	sortDescending   bool
-	filterColumn     string
-	filterValue      string
-	filterEditing    bool
-	filterInput      textinput.Model
-	loading          bool
-	err              string
-	width            int
-	height           int
-	content          viewport.Model
-	editor           *sqlEditorModel
-	nextRequestID    uint64
-	activeRequestID  uint64
-	requestContext   context.Context
-	requestCancel    context.CancelFunc
-	pendingBrowse    *workspaceBrowseIntent
-	failedBrowse     *workspaceBrowseIntent
-	notice           string
-	tablesLoadFailed bool
+	db                *sql.DB
+	dbName            string
+	connectionLabel   string
+	changeConnection  bool
+	mode              workspaceMode
+	focus             workspaceFocus
+	navigatorOpen     bool
+	tab               workspaceTab
+	tables            []string
+	cursor            int
+	selectedTable     string
+	structure         []db.TableColumnInfo
+	columns           []table.Column
+	rows              []table.Row
+	rowCursor         int
+	rowPeek           bool
+	rowPeekGridOffset int
+	pageSize          int
+	offset            int
+	hasNext           bool
+	nextCursor        string
+	keysetEnabled     bool
+	cursorHistory     []string
+	sortColumn        string
+	sortDescending    bool
+	filterColumn      string
+	filterValue       string
+	filterEditing     bool
+	filterInput       textinput.Model
+	loading           bool
+	err               string
+	width             int
+	height            int
+	content           viewport.Model
+	editor            *sqlEditorModel
+	nextRequestID     uint64
+	activeRequestID   uint64
+	requestContext    context.Context
+	requestCancel     context.CancelFunc
+	pendingBrowse     *workspaceBrowseIntent
+	failedBrowse      *workspaceBrowseIntent
+	notice            string
+	tablesLoadFailed  bool
 }
 
 func initialWorkspaceModel(database *sql.DB, dbName, connectionLabel string) workspaceModel {
@@ -353,6 +354,7 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if m.rowPeek {
 				m.rowPeek = false
 				m.refreshContent()
+				m.content.SetYOffset(m.rowPeekGridOffset)
 				return m, nil
 			}
 		case "c":
@@ -371,7 +373,11 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "b":
-			m.rowPeek = false
+			if m.rowPeek {
+				m.rowPeek = false
+				m.refreshContent()
+				m.content.SetYOffset(m.rowPeekGridOffset)
+			}
 			m.navigatorOpen = !m.navigatorOpen
 			if m.navigatorOpen {
 				m.focus = workspaceFocusExplorer
@@ -431,6 +437,7 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.startBrowse(intent)
 			}
 			if m.tab == workspaceTabData && len(m.rows) > 0 {
+				m.rowPeekGridOffset = m.content.YOffset
 				m.rowPeek = true
 				m.refreshContent()
 				return m, nil
@@ -490,6 +497,10 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
+			if m.rowPeek {
+				m.content.LineUp(1)
+				return m, nil
+			}
 			if m.tab == workspaceTabData && m.rowCursor > 0 {
 				m.rowCursor--
 				m.refreshContent()
@@ -500,6 +511,10 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				if m.cursor < len(m.tables)-1 {
 					m.cursor++
 				}
+				return m, nil
+			}
+			if m.rowPeek {
+				m.content.LineDown(1)
 				return m, nil
 			}
 			if m.tab == workspaceTabData && m.rowCursor < len(m.rows)-1 {
@@ -538,6 +553,7 @@ func (m workspaceModel) updateEditor(message tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *workspaceModel) resizeContent() {
+	peekOffset := m.content.YOffset
 	height := m.height - workspaceContentChrome
 	if height < 4 {
 		height = 4
@@ -555,6 +571,9 @@ func (m *workspaceModel) resizeContent() {
 		m.editor = &editor
 	}
 	m.refreshContent()
+	if m.rowPeek {
+		m.content.SetYOffset(peekOffset)
+	}
 }
 
 func (m *workspaceModel) refreshContent() {
@@ -569,7 +588,7 @@ func (m *workspaceModel) refreshContent() {
 	if m.tab == workspaceTabStructure {
 		m.content.SetContent(renderWorkspaceStructure(m.selectedTable, m.structure))
 	} else if m.rowPeek && len(m.rows) > 0 {
-		m.content.SetContent(renderWorkspaceRowPeek(m.selectedTable, m.columns, m.rows[m.rowCursor], m.offset+m.rowCursor+1))
+		m.content.SetContent(renderWorkspaceRowPeek(m.selectedTable, m.columns, m.rows[m.rowCursor], m.offset+m.rowCursor+1, m.content.Width))
 	} else {
 		m.content.SetContent(renderWorkspaceRows(m.selectedTable, m.columns, m.rows, m.offset, m.content.Width, m.rowCursor))
 		selectedLine := 4 + m.rowCursor*2
@@ -832,18 +851,30 @@ func renderWorkspaceRowInspector(
 	return output.String()
 }
 
-func renderWorkspaceRowPeek(tableName string, columns []table.Column, row table.Row, rowNumber int) string {
+func renderWorkspaceRowPeek(tableName string, columns []table.Column, row table.Row, rowNumber, width int) string {
 	var output strings.Builder
 	output.WriteString(fmt.Sprintf("Row %d · %s\n\n", rowNumber, tableName))
 	labelWidth := 0
 	for _, column := range columns {
-		labelWidth = max(labelWidth, len(column.Title))
+		labelWidth = max(labelWidth, ansi.StringWidth(column.Title))
 	}
+	labelWidth = min(labelWidth, min(24, max(width/3, 12)))
+	valueWidth := max(width-labelWidth-2, 8)
 	for index, value := range row {
 		if index >= len(columns) {
 			break
 		}
-		output.WriteString(fmt.Sprintf("%-*s  %s\n", labelWidth, columns[index].Title, value))
+		label := ansi.Truncate(columns[index].Title, labelWidth, "…")
+		labelPadding := strings.Repeat(" ", max(labelWidth-ansi.StringWidth(label), 0))
+		wrappedLines := strings.Split(ansi.Hardwrap(value, valueWidth, true), "\n")
+		if len(wrappedLines) == 0 {
+			wrappedLines = []string{""}
+		}
+		output.WriteString(label + labelPadding + "  " + wrappedLines[0] + "\n")
+		indent := strings.Repeat(" ", labelWidth+2)
+		for _, line := range wrappedLines[1:] {
+			output.WriteString(indent + line + "\n")
+		}
 	}
 	output.WriteString("\nEsc returns to the data grid.")
 	return output.String()
@@ -960,6 +991,9 @@ func (m workspaceModel) View() string {
 	contentBody += clipWorkspaceView(m.content.View(), m.width, m.content.Height)
 
 	footerText := "↑/↓ row • Enter peek • / filter • s column • S direction • n/p page • b tables • e query • q quit"
+	if m.rowPeek {
+		footerText = "↑/↓ scroll • PgUp/PgDn page • Esc data grid • q quit"
+	}
 	if m.width > 0 && m.width < 90 {
 		footerText = "↑/↓ row • Enter peek • / filter • s sort • n/p page • b tables • q quit"
 	}

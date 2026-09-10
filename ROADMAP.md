@@ -70,7 +70,7 @@ Goal: predictable interaction before adding more controls.
 - [x] **M0.2 Navigation state:** commit the selected table, filter, sort, page, and cursor history only after a successful load. Preserve the previous successful view on failure; support retry.
 - [x] **M0.3 Context and deadlines:** pass a caller context through connection/metadata/data work; cancel pending work on disconnect or replacement. Keep the event loop responsive.
 - [x] **M0.4 Terminal sizing:** account for the complete header/toolbar/footer height; handle resize in every mode. Support an 80×24 terminal and provide an explicit message for unsupported sizes.
-- [ ] **M0.5 Row peek:** preserve its existing layout; wrap long and multiline values, support independent scrolling, and return to the same selected row and grid position.
+- [x] **M0.5 Row peek:** preserve its existing layout; wrap long and multiline values, support independent scrolling, and return to the same selected row and grid position.
 - [ ] **M0.6 State cleanup:** remove unused inspector helpers, redundant metadata loads, and obsolete model fields once callers are verified. Retain functioning legacy paths until replacement tests pass.
 - [ ] **M0.7 Help:** add `?` with commands for the active view. Distinguish loading, cancellation, empty data, permission denial, and disconnected states.
 
@@ -203,9 +203,9 @@ Do not start these unless recurring user feedback justifies changing the roadmap
 
 ## Current work
 
-- **Status:** M0.1–M0.4 complete; Phase 0 is in progress.
-- **Next item:** M0.5 — retain the accepted row-peek layout while adding wrapping, independent scrolling, and exact return position.
-- **Following items:** M0.6 cleanup; M0.7 help.
+- **Status:** M0.1–M0.5 complete; Phase 0 is in progress.
+- **Next item:** M0.6 — remove rejected inspector code, redundant metadata work, and obsolete model state without disturbing the accepted workspace.
+- **Following item:** M0.7 contextual help and distinct operational states.
 - **First milestone:** reliable browsing foundation (Phases 0–1).
 - **Planning-only change:** this document does not implement the features above or authorize external releases, telemetry, or database writes.
 
@@ -218,3 +218,4 @@ Do not start these unless recurring user feedback justifies changing the roadmap
 | 2026-09-10 | M0.2 | Staged table, filter, sort, page, and cursor changes until successful responses; retained the last successful data after errors; added retry with `r`; verified failure and retry state with unit, race, and PostgreSQL integration tests. |
 | 2026-09-10 | M0.3 | Added shared connection, metadata, browse, and query deadlines; moved SQL execution and autocomplete loading off the event loop; added query replacement/stale-result isolation and `Ctrl+X` cancellation; verified with unit, race, vet, and disposable PostgreSQL integration tests. |
 | 2026-09-10 | M0.4 | Added a 60×18 minimum-size state, verified the full workspace at 80×24, bounded long lines and SQL panels, kept selected tables visible in long navigators, and resized data, structure, filter, row-peek, loading/error, and Query modes without losing state. |
+| 2026-09-10 | M0.5 | Kept the simple vertical row peek, wrapped long and multiline Unicode values, added independent line/page scrolling, retained peek scroll through resize, and restored the exact selected row and grid viewport on exit. |

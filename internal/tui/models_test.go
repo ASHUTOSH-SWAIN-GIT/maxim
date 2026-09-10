@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func key(keyType tea.KeyType) tea.KeyMsg {
@@ -452,6 +453,63 @@ func TestWorkspaceSupportsEightyByTwentyFourAndSmallTerminalFallback(t *testing.
 	assertViewFits(t, view, 59, 17)
 	if !strings.Contains(view, "Minimum: 60×18") {
 		t.Fatalf("minimum-size guidance missing: %q", view)
+	}
+}
+
+func TestWorkspaceRowPeekWrapsScrollsAndRestoresGridPosition(t *testing.T) {
+	model := initialWorkspaceModel(nil, "app", "user@host:5432")
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = updated.(workspaceModel)
+	model.navigatorOpen = false
+	model.selectedTable = "events"
+	for index := 0; index < 12; index++ {
+		model.columns = append(model.columns, table.Column{Title: fmt.Sprintf("long_column_%02d", index)})
+	}
+	longValue := strings.Repeat("a wide unicode value 世界 ", 6) + "\nsecond database line"
+	row := make(table.Row, len(model.columns))
+	for index := range row {
+		row[index] = longValue
+	}
+	for index := 0; index < 30; index++ {
+		model.rows = append(model.rows, append(table.Row(nil), row...))
+	}
+	model.rowCursor = 10
+	model.refreshContent()
+	gridOffset := model.content.YOffset
+	if gridOffset == 0 {
+		t.Fatal("fixture did not produce a scrolled data grid")
+	}
+
+	updated, _ = model.Update(key(tea.KeyEnter))
+	model = updated.(workspaceModel)
+	if !model.rowPeek || model.rowCursor != 10 || model.content.YOffset != 0 {
+		t.Fatalf("row peek did not open at its own scroll origin: %#v", model)
+	}
+	peek := renderWorkspaceRowPeek("events", model.columns, row, 11, model.content.Width)
+	if !strings.Contains(peek, "second database line") {
+		t.Fatal("multiline value was not retained")
+	}
+	for _, line := range strings.Split(peek, "\n") {
+		if width := ansi.StringWidth(line); width > model.content.Width {
+			t.Fatalf("row-peek line width = %d, viewport width = %d: %q", width, model.content.Width, line)
+		}
+	}
+
+	updated, _ = model.Update(key(tea.KeyDown))
+	model = updated.(workspaceModel)
+	if model.content.YOffset == 0 || model.rowCursor != 10 {
+		t.Fatal("row-peek scrolling moved the selected database row")
+	}
+	peekOffset := model.content.YOffset
+	updated, _ = model.Update(tea.WindowSizeMsg{Width: 79, Height: 24})
+	model = updated.(workspaceModel)
+	if model.content.YOffset != peekOffset {
+		t.Fatalf("resize reset row-peek scroll: got %d, want %d", model.content.YOffset, peekOffset)
+	}
+	updated, _ = model.Update(key(tea.KeyEsc))
+	model = updated.(workspaceModel)
+	if model.rowPeek || model.rowCursor != 10 || model.content.YOffset != gridOffset {
+		t.Fatalf("closing row peek did not restore the grid position: row=%d offset=%d, want row=10 offset=%d", model.rowCursor, model.content.YOffset, gridOffset)
 	}
 }
 
