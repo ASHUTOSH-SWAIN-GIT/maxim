@@ -272,6 +272,10 @@ In the database workspace:
 - `Tab` - Switch between data and structure
 - `Up/Down` or `j/k` - Select a row in the data grid
 - `Enter` - Peek at every field and the full value for the selected row
+
+The workspace supports terminals from **60×18** upward and is tested at the
+common **80×24** size. If the terminal becomes smaller, Maxim keeps the active
+workspace state and shows resize guidance until enough room is available.
 - `Esc` - Return from the row peek to the data grid
 - `/` - Apply a server-side `column=value` filter
 - `s` - Cycle the sort column

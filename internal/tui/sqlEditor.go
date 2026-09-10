@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type sqlEditorSchemaLoadedMsg struct {
@@ -438,6 +439,7 @@ func (m sqlEditorModel) View() string {
 	if m.viewport.Height > panelHeight {
 		panelHeight = m.viewport.Height
 	}
+	leftContent = clipEditorContent(leftContent, max(panelWidth-4, 1), panelHeight)
 	// Create left panel (SQL Query) with consistent dimensions
 	leftPanel := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder()).
@@ -480,6 +482,7 @@ func (m sqlEditorModel) View() string {
 	} else {
 		rightContent = m.viewport.View()
 	}
+	rightContent = clipEditorContent(rightContent, max(panelWidth-4, 1), panelHeight)
 
 	// Create right panel (Results or Suggestions) with consistent dimensions
 	rightPanel := lipgloss.NewStyle().
@@ -495,6 +498,17 @@ func (m sqlEditorModel) View() string {
 
 	// Return just the panels - single container taking up whole terminal
 	return panels
+}
+
+func clipEditorContent(content string, width, height int) string {
+	lines := strings.Split(content, "\n")
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for index := range lines {
+		lines[index] = ansi.Truncate(lines[index], width, "")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func RunSQLEditor(db *sql.DB, dbName string) error {

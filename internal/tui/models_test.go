@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func key(keyType tea.KeyType) tea.KeyMsg {
@@ -388,6 +390,78 @@ func TestWorkspaceErrorsAndResponsiveLayout(t *testing.T) {
 	}
 	if view := model.View(); !strings.Contains(view, "app") || !strings.Contains(view, "connected") {
 		t.Fatalf("compact layout lost database context: %q", view)
+	}
+}
+
+func TestWorkspaceSupportsEightyByTwentyFourAndSmallTerminalFallback(t *testing.T) {
+	model := initialWorkspaceModel(nil, "app", "user@host:5432")
+	model.tables = make([]string, 40)
+	for index := range model.tables {
+		model.tables[index] = fmt.Sprintf("table_%02d", index)
+	}
+	model.cursor = 20
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = updated.(workspaceModel)
+	assertViewFits(t, model.View(), 80, 24)
+	if !strings.Contains(model.View(), "table_20") {
+		t.Fatal("selected table was clipped from the navigator")
+	}
+
+	model.navigatorOpen = false
+	model.selectedTable = "orders"
+	model.structure = []db.TableColumnInfo{{Name: "id", PrimaryKey: true}, {Name: "status"}}
+	model.columns = []table.Column{{Title: "id"}, {Title: "status"}}
+	model.rows = []table.Row{{"1", "paid"}, {"2", "shipped"}}
+	model.refreshContent()
+	assertViewFits(t, model.View(), 80, 24)
+	model.tab = workspaceTabStructure
+	model.refreshContent()
+	assertViewFits(t, model.View(), 80, 24)
+	model.tab = workspaceTabData
+	model.rowPeek = true
+	model.refreshContent()
+	assertViewFits(t, model.View(), 80, 24)
+	model.rowPeek = false
+	model.filterEditing = true
+	assertViewFits(t, model.View(), 80, 24)
+	model.filterEditing = false
+	model.loading = true
+	model.pendingBrowse = &workspaceBrowseIntent{tableName: "orders"}
+	model.notice = strings.Repeat("database error ", 20)
+	assertViewFits(t, model.View(), 80, 24)
+	model.loading = false
+	model.pendingBrowse = nil
+	model.notice = ""
+
+	editor := initialSQLEditorModel(nil, "app")
+	defer editor.cancelOperations()
+	model.editor = &editor
+	model.mode = workspaceModeEditor
+	model.resizeContent()
+	assertViewFits(t, model.View(), 80, 24)
+	updated, _ = model.Update(tea.WindowSizeMsg{Width: workspaceMinimumWidth, Height: workspaceMinimumHeight})
+	model = updated.(workspaceModel)
+	assertViewFits(t, model.View(), workspaceMinimumWidth, workspaceMinimumHeight)
+	if strings.Contains(model.View(), "needs a little more room") {
+		t.Fatal("minimum supported terminal incorrectly showed the fallback")
+	}
+
+	updated, _ = model.Update(tea.WindowSizeMsg{Width: 59, Height: 17})
+	model = updated.(workspaceModel)
+	view := model.View()
+	assertViewFits(t, view, 59, 17)
+	if !strings.Contains(view, "Minimum: 60×18") {
+		t.Fatalf("minimum-size guidance missing: %q", view)
+	}
+}
+
+func assertViewFits(t *testing.T, view string, width, height int) {
+	t.Helper()
+	if got := lipgloss.Width(view); got > width {
+		t.Fatalf("view width = %d, terminal width = %d\n%s", got, width, view)
+	}
+	if got := lipgloss.Height(view); got > height {
+		t.Fatalf("view height = %d, terminal height = %d\n%s", got, height, view)
 	}
 }
 

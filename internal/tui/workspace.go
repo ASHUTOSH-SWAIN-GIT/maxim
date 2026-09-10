@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type workspaceMode int
@@ -21,6 +22,12 @@ type workspaceMode int
 const (
 	workspaceModeBrowse workspaceMode = iota
 	workspaceModeEditor
+)
+
+const (
+	workspaceMinimumWidth  = 60
+	workspaceMinimumHeight = 18
+	workspaceContentChrome = 10
 )
 
 type workspaceFocus int
@@ -531,7 +538,7 @@ func (m workspaceModel) updateEditor(message tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *workspaceModel) resizeContent() {
-	height := m.height - 7
+	height := m.height - workspaceContentChrome
 	if height < 4 {
 		height = 4
 	}
@@ -541,11 +548,13 @@ func (m *workspaceModel) resizeContent() {
 	}
 	m.content.Width = width
 	m.content.Height = height
+	m.filterInput.Width = max(min(m.width-4, 80), 20)
 	if m.editor != nil {
 		updated, _ := m.editor.Update(tea.WindowSizeMsg{Width: m.width, Height: max(m.height-4, 8)})
 		editor := updated.(sqlEditorModel)
 		m.editor = &editor
 	}
+	m.refreshContent()
 }
 
 func (m *workspaceModel) refreshContent() {
@@ -844,18 +853,26 @@ func (m workspaceModel) View() string {
 	accent := lipgloss.Color("6")
 	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	header := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
+	if m.width > 0 && (m.width < workspaceMinimumWidth || m.height < workspaceMinimumHeight) {
+		message := fmt.Sprintf(
+			"Maxim needs a little more room\n\nCurrent: %d×%d\nMinimum: %d×%d\n\nResize the terminal to continue.\nCtrl+C quits.",
+			m.width, m.height, workspaceMinimumWidth, workspaceMinimumHeight,
+		)
+		return clipWorkspaceView(lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, message), m.width, m.height)
+	}
 	status := lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render("● connected")
 	top := header.Render("MAXIM") + "  " + m.dbName
 	if m.width >= 100 {
 		top += "  " + muted.Render(m.connectionLabel)
 	}
 	top += "  " + status
+	top = ansi.Truncate(top, max(m.width, 1), "…")
 	separatorWidth := max(m.width, 30)
 	separator := muted.Render(strings.Repeat("─", separatorWidth))
 
 	if m.mode == workspaceModeEditor && m.editor != nil {
 		footer := muted.Render("Esc workspace • Ctrl+A run • Ctrl+X cancel • Ctrl+R clear")
-		return top + "\n" + separator + "\n" + header.Render("Query") + "\n" + m.editor.View() + "\n" + footer
+		return clipWorkspaceView(top+"\n"+separator+"\n"+header.Render("Query")+"\n"+m.editor.View()+"\n"+footer, m.width, m.height)
 	}
 
 	if m.navigatorOpen {
@@ -865,14 +882,35 @@ func (m workspaceModel) View() string {
 		} else if len(m.tables) == 0 {
 			explorerContent += muted.Render("No tables")
 		} else {
-			for index, tableName := range m.tables {
+			availableRows := m.height - 10
+			if m.pendingBrowse != nil {
+				availableRows -= 2
+			}
+			if m.notice != "" {
+				availableRows -= 2
+			}
+			availableRows = max(availableRows, 1)
+			start := max(m.cursor-availableRows/2, 0)
+			if start+availableRows > len(m.tables) {
+				start = max(len(m.tables)-availableRows, 0)
+			}
+			end := min(start+availableRows, len(m.tables))
+			if start > 0 {
+				explorerContent += muted.Render(fmt.Sprintf("  ↑ %d more", start)) + "\n"
+			}
+			for index := start; index < end; index++ {
+				tableName := m.tables[index]
 				prefix := "  "
 				style := muted
 				if index == m.cursor {
 					prefix = "> "
 					style = lipgloss.NewStyle().Foreground(accent).Bold(m.focus == workspaceFocusExplorer)
 				}
+				tableName = ansi.Truncate(tableName, max(m.width-4, 1), "…")
 				explorerContent += prefix + style.Render(tableName) + "\n"
+			}
+			if end < len(m.tables) {
+				explorerContent += muted.Render(fmt.Sprintf("  ↓ %d more", len(m.tables)-end)) + "\n"
 			}
 		}
 		if m.pendingBrowse != nil {
@@ -885,7 +923,7 @@ func (m workspaceModel) View() string {
 		if m.failedBrowse != nil || m.tablesLoadFailed {
 			footer = muted.Render("r retry • ↑/↓ select • Enter open • b close • c connections • q quit")
 		}
-		return top + "\n" + separator + "\n\n" + explorerContent + "\n" + footer
+		return clipWorkspaceView(top+"\n"+separator+"\n\n"+explorerContent+"\n"+footer, m.width, m.height)
 	}
 
 	context := muted.Render("public / ") + header.Render(m.selectedTable)
@@ -895,7 +933,7 @@ func (m workspaceModel) View() string {
 	} else {
 		tabs = header.Render("Data") + "  " + muted.Render("Structure") + "  " + muted.Render("Query")
 	}
-	contentBody := context + "    " + tabs + "\n" + separator + "\n"
+	contentBody := ansi.Truncate(context+"    "+tabs, max(m.width, 1), "…") + "\n" + separator + "\n"
 	if m.filterEditing {
 		contentBody += m.filterInput.View() + "\n" + separator + "\n"
 	} else if m.selectedTable != "" {
@@ -910,7 +948,7 @@ func (m workspaceModel) View() string {
 		if m.keysetEnabled {
 			toolbar += "  •  keyset pagination"
 		}
-		contentBody += muted.Render(toolbar) + "\n" + separator + "\n"
+		contentBody += muted.Render(ansi.Truncate(toolbar, max(m.width, 1), "…")) + "\n" + separator + "\n"
 	}
 	contentBody += "\n"
 	if m.loading && m.pendingBrowse != nil {
@@ -919,7 +957,7 @@ func (m workspaceModel) View() string {
 	if m.notice != "" {
 		contentBody += lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(m.notice) + "\n"
 	}
-	contentBody += m.content.View()
+	contentBody += clipWorkspaceView(m.content.View(), m.width, m.content.Height)
 
 	footerText := "↑/↓ row • Enter peek • / filter • s column • S direction • n/p page • b tables • e query • q quit"
 	if m.width > 0 && m.width < 90 {
@@ -929,7 +967,20 @@ func (m workspaceModel) View() string {
 		footerText = "r retry • " + footerText
 	}
 	footer := muted.Render(footerText)
-	return top + "\n" + separator + "\n" + contentBody + "\n" + footer
+	return clipWorkspaceView(top+"\n"+separator+"\n"+contentBody+"\n"+footer, m.width, m.height)
+}
+
+func clipWorkspaceView(content string, width, height int) string {
+	lines := strings.Split(content, "\n")
+	if height > 0 && len(lines) > height {
+		lines = lines[:height]
+	}
+	if width > 0 {
+		for index := range lines {
+			lines[index] = ansi.Truncate(lines[index], width, "")
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func RunWorkspace(database *sql.DB, dbName, connectionLabel string) (bool, error) {
