@@ -274,10 +274,15 @@ In the database workspace:
 - `Enter` - Peek at every field and the full value for the selected row
 - While peeking: `Up/Down` scrolls wrapped fields, `PgUp/PgDn` scrolls a page,
   and `Esc` returns to the same row and grid position
+- `?` - Show commands for the active workspace view
+- `F1` - Show contextual help while typing in the SQL editor or filter input
+- `Ctrl+X` - Cancel an active table load
 
 The workspace supports terminals from **60×18** upward and is tested at the
 common **80×24** size. If the terminal becomes smaller, Maxim keeps the active
 workspace state and shows resize guidance until enough room is available.
+Loading, cancellation, timeout, empty-result, permission-denied, and lost-
+connection states are shown separately so failures are not mistaken for empty data.
 - `Esc` - Return from the row peek to the data grid
 - `/` - Apply a server-side `column=value` filter
 - `s` - Cycle the sort column

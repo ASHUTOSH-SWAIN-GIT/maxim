@@ -403,20 +403,6 @@ func splitSQLStatements(input string) []string {
 	return stmts
 }
 
-// getCurrentStatement returns the statement at the caret; heuristic: if caret API is not
-// available, assume caret is at end of content, and pick the last statement under that.
-// (removed) getCurrentStatement
-
-func (m sqlEditorModel) headerView() string {
-	// Return empty string to remove external header
-	return ""
-}
-
-func (m sqlEditorModel) footerView() string {
-	// Return empty string to remove external footer
-	return ""
-}
-
 func (m sqlEditorModel) View() string {
 	if m.quitting {
 		return ""

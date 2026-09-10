@@ -48,7 +48,6 @@ Known code issues to address first:
 - `internal/tui/sqlEditor.go` has a statement splitter that understands only basic single-quoted strings.
 - `internal/db/query_executor.go` stops displaying results at 100 rows, but this is not a database-work limit or a cancellation mechanism.
 - Values are flattened to strings, including the same visible representation for SQL NULL and text containing `NULL`.
-- The reverted inspector still has unused helper functions in `workspace.go`. Remove that dead code while retaining the accepted row peek.
 
 ## Execution order and milestones
 
@@ -71,8 +70,8 @@ Goal: predictable interaction before adding more controls.
 - [x] **M0.3 Context and deadlines:** pass a caller context through connection/metadata/data work; cancel pending work on disconnect or replacement. Keep the event loop responsive.
 - [x] **M0.4 Terminal sizing:** account for the complete header/toolbar/footer height; handle resize in every mode. Support an 80×24 terminal and provide an explicit message for unsupported sizes.
 - [x] **M0.5 Row peek:** preserve its existing layout; wrap long and multiline values, support independent scrolling, and return to the same selected row and grid position.
-- [ ] **M0.6 State cleanup:** remove unused inspector helpers, redundant metadata loads, and obsolete model fields once callers are verified. Retain functioning legacy paths until replacement tests pass.
-- [ ] **M0.7 Help:** add `?` with commands for the active view. Distinguish loading, cancellation, empty data, permission denial, and disconnected states.
+- [x] **M0.6 State cleanup:** remove unused inspector helpers, redundant metadata loads, and obsolete model fields once callers are verified. Retain functioning legacy paths until replacement tests pass.
+- [x] **M0.7 Help:** add `?` with commands for the active view. Distinguish loading, cancellation, empty data, permission denial, and disconnected states.
 
 Done when: delayed responses, failed next-page loads, rapid repeated keys, switching views during loading, and terminal resizing cannot show the wrong table or lose the last successful page. No intended database call blocks the workspace event loop.
 
@@ -203,9 +202,9 @@ Do not start these unless recurring user feedback justifies changing the roadmap
 
 ## Current work
 
-- **Status:** M0.1–M0.5 complete; Phase 0 is in progress.
-- **Next item:** M0.6 — remove rejected inspector code, redundant metadata work, and obsolete model state without disturbing the accepted workspace.
-- **Following item:** M0.7 contextual help and distinct operational states.
+- **Status:** Phase 0 complete (M0.1–M0.7); Phase 1 is next.
+- **Next item:** M1.1 — preserve typed database values, NULL identity, numeric precision, timestamp identity, and terminal-safe display text.
+- **Following items:** M1.2 qualified identifiers; M1.3 cursor correctness; M1.4 stable ordering.
 - **First milestone:** reliable browsing foundation (Phases 0–1).
 - **Planning-only change:** this document does not implement the features above or authorize external releases, telemetry, or database writes.
 
@@ -219,3 +218,5 @@ Do not start these unless recurring user feedback justifies changing the roadmap
 | 2026-09-10 | M0.3 | Added shared connection, metadata, browse, and query deadlines; moved SQL execution and autocomplete loading off the event loop; added query replacement/stale-result isolation and `Ctrl+X` cancellation; verified with unit, race, vet, and disposable PostgreSQL integration tests. |
 | 2026-09-10 | M0.4 | Added a 60×18 minimum-size state, verified the full workspace at 80×24, bounded long lines and SQL panels, kept selected tables visible in long navigators, and resized data, structure, filter, row-peek, loading/error, and Query modes without losing state. |
 | 2026-09-10 | M0.5 | Kept the simple vertical row peek, wrapped long and multiline Unicode values, added independent line/page scrolling, retained peek scroll through resize, and restored the exact selected row and grid viewport on exit. |
+| 2026-09-10 | M0.6 | Removed the rejected inspector implementation, dead editor helpers, and redundant focus state; made each browse response reuse the same discovered table structure for validation, rendering, and pagination. |
+| 2026-09-10 | M0.7 | Added contextual `?` help for workspace views and `F1` help inside typing modes; added visible loading cancellation plus distinct timeout, empty-result, permission-denied, generic-failure, and disconnected states. |

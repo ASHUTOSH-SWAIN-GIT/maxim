@@ -1,10 +1,10 @@
 package tui
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
+	"database/sql/driver"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/lib/pq"
 )
 
 type workspaceMode int
@@ -28,13 +29,6 @@ const (
 	workspaceMinimumWidth  = 60
 	workspaceMinimumHeight = 18
 	workspaceContentChrome = 10
-)
-
-type workspaceFocus int
-
-const (
-	workspaceFocusExplorer workspaceFocus = iota
-	workspaceFocusContent
 )
 
 type workspaceTab int
@@ -80,7 +74,6 @@ type workspaceModel struct {
 	connectionLabel   string
 	changeConnection  bool
 	mode              workspaceMode
-	focus             workspaceFocus
 	navigatorOpen     bool
 	tab               workspaceTab
 	tables            []string
@@ -118,6 +111,8 @@ type workspaceModel struct {
 	failedBrowse      *workspaceBrowseIntent
 	notice            string
 	tablesLoadFailed  bool
+	helpOpen          bool
+	disconnected      bool
 }
 
 func initialWorkspaceModel(database *sql.DB, dbName, connectionLabel string) workspaceModel {
@@ -129,7 +124,7 @@ func initialWorkspaceModel(database *sql.DB, dbName, connectionLabel string) wor
 	requestContext, requestCancel := context.WithCancel(context.Background())
 	return workspaceModel{
 		db: database, dbName: dbName, connectionLabel: connectionLabel,
-		focus: workspaceFocusExplorer, navigatorOpen: true, tab: workspaceTabData,
+		navigatorOpen: true, tab: workspaceTabData,
 		pageSize: 100, loading: true, content: content, filterInput: filterInput,
 		nextRequestID: 1, activeRequestID: 1,
 		requestContext: requestContext, requestCancel: requestCancel,
@@ -149,13 +144,9 @@ func loadWorkspaceTables(ctx context.Context, database *sql.DB, requestID uint64
 
 func loadWorkspaceBrowse(ctx context.Context, database *sql.DB, tableName string, request db.TableBrowseRequest, requestID uint64) tea.Cmd {
 	return func() tea.Msg {
-		structure, err := db.GetTableStructureContext(ctx, database, tableName)
-		if err != nil {
-			return workspaceTableLoadedMsg{requestID: requestID, tableName: tableName, offset: request.Offset, err: err}
-		}
 		page, err := db.BrowseTableContext(ctx, database, tableName, request)
 		return workspaceTableLoadedMsg{
-			requestID: requestID, tableName: tableName, structure: structure, columns: page.Columns,
+			requestID: requestID, tableName: tableName, structure: page.Structure, columns: page.Columns,
 			rows: page.Rows, offset: request.Offset, hasNext: page.HasNext,
 			nextCursor: page.NextCursor, keysetEnabled: page.KeysetEnabled,
 			sortColumn: page.SortColumn, sortDescending: request.Descending,
@@ -192,6 +183,7 @@ func (m *workspaceModel) startTableDiscovery() tea.Cmd {
 	m.requestCancel = cancel
 	m.loading = true
 	m.tablesLoadFailed = false
+	m.err = ""
 	m.notice = ""
 	return loadWorkspaceTables(ctx, m.db, m.activeRequestID)
 }
@@ -232,14 +224,32 @@ func (m workspaceModel) browseIntent(cursor string, offset int) workspaceBrowseI
 	}
 }
 
-func countPrimaryKeys(columns []db.TableColumnInfo) int {
-	count := 0
-	for _, column := range columns {
-		if column.PrimaryKey {
-			count++
+func formatWorkspaceFailure(err error) (message string, disconnected bool) {
+	if errors.Is(err, context.Canceled) {
+		return "Cancelled · database operation stopped.", false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "Timed out · the database did not respond before the deadline. Press r to retry.", false
+	}
+	var pqError *pq.Error
+	if errors.As(err, &pqError) {
+		if pqError.Code == "42501" {
+			return "Permission denied · " + pqError.Message, false
+		}
+		if strings.HasPrefix(string(pqError.Code), "08") {
+			return "Disconnected · " + pqError.Message + ".", true
 		}
 	}
-	return count
+	lowerMessage := strings.ToLower(err.Error())
+	if errors.Is(err, driver.ErrBadConn) || strings.Contains(lowerMessage, "connection refused") ||
+		strings.Contains(lowerMessage, "connection reset") || strings.Contains(lowerMessage, "server closed the connection") ||
+		strings.Contains(lowerMessage, "broken pipe") {
+		return "Disconnected · the database connection was lost. Press r to retry.", true
+	}
+	if strings.Contains(lowerMessage, "permission denied") {
+		return "Permission denied · " + err.Error(), false
+	}
+	return "Load failed · " + err.Error(), false
 }
 
 func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
@@ -255,12 +265,13 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.finishRequest()
 		m.loading = false
 		if message.err != nil {
-			m.err = message.err.Error()
+			m.err, m.disconnected = formatWorkspaceFailure(message.err)
 			m.tablesLoadFailed = true
 			m.refreshContent()
 			return m, nil
 		}
 		m.err = ""
+		m.disconnected = false
 		m.tablesLoadFailed = false
 		m.tables = message.tables
 		if len(m.tables) == 0 {
@@ -275,12 +286,13 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.finishRequest()
 		m.loading = false
 		if message.err != nil {
-			m.notice = "Load failed: " + message.err.Error()
+			m.notice, m.disconnected = formatWorkspaceFailure(message.err)
 			m.failedBrowse = intent
 		} else {
 			m.err = ""
 			m.notice = ""
 			m.failedBrowse = nil
+			m.disconnected = false
 			m.selectedTable = message.tableName
 			m.structure = message.structure
 			m.columns = message.columns
@@ -297,7 +309,6 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursorHistory = append([]string(nil), intent.cursorHistory...)
 				if intent.closeNavigator {
 					m.navigatorOpen = false
-					m.focus = workspaceFocusContent
 				}
 			}
 			m.rowCursor = 0
@@ -308,6 +319,18 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshContent()
 		}
 		return m, nil
+	}
+	if key, ok := message.(tea.KeyMsg); ok {
+		if m.helpOpen {
+			if key.Type == tea.KeyEsc || key.Type == tea.KeyF1 || key.String() == "?" {
+				m.helpOpen = false
+			}
+			return m, nil
+		}
+		if key.Type == tea.KeyF1 {
+			m.helpOpen = true
+			return m, nil
+		}
 	}
 
 	if m.mode == workspaceModeEditor {
@@ -357,6 +380,16 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.content.SetYOffset(m.rowPeekGridOffset)
 				return m, nil
 			}
+		case "?":
+			m.helpOpen = true
+			return m, nil
+		case "ctrl+x":
+			if m.loading {
+				m.cancelRequest()
+				m.notice = "Cancelled · database load stopped."
+				m.refreshContent()
+			}
+			return m, nil
 		case "c":
 			m.cancelRequest()
 			m.changeConnection = true
@@ -379,11 +412,6 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.content.SetYOffset(m.rowPeekGridOffset)
 			}
 			m.navigatorOpen = !m.navigatorOpen
-			if m.navigatorOpen {
-				m.focus = workspaceFocusExplorer
-			} else {
-				m.focus = workspaceFocusContent
-			}
 			return m, nil
 		case "/":
 			if !m.navigatorOpen && m.selectedTable != "" {
@@ -626,7 +654,7 @@ func renderWorkspaceRows(tableName string, columns []table.Column, rows []table.
 	var output strings.Builder
 	output.WriteString(fmt.Sprintf("Data · %s · rows %d–%d\n\n", tableName, offset+1, offset+len(rows)))
 	if len(rows) == 0 {
-		output.WriteString("No rows on this page.")
+		output.WriteString("Empty result\n\nNo rows matched this table page and filter.")
 		return output.String()
 	}
 	if len(columns) == 0 {
@@ -699,158 +727,6 @@ func renderWorkspaceRows(tableName string, columns []table.Column, rows []table.
 	return output.String()
 }
 
-func inspectorFieldIndices(columns []table.Column, query string) []int {
-	query = strings.ToLower(strings.TrimSpace(query))
-	indices := make([]int, 0, len(columns))
-	for index, column := range columns {
-		if query == "" || strings.Contains(strings.ToLower(column.Title), query) {
-			indices = append(indices, index)
-		}
-	}
-	return indices
-}
-
-func prettyInspectorValue(value, dataType string) string {
-	if value == "NULL" {
-		return "NULL"
-	}
-	if dataType == "json" || dataType == "jsonb" {
-		var formatted bytes.Buffer
-		if json.Indent(&formatted, []byte(value), "", "  ") == nil {
-			return formatted.String()
-		}
-	}
-	return value
-}
-
-func truncateInspectorValue(value string, width int) string {
-	value = strings.ReplaceAll(value, "\n", " ↵ ")
-	if width < 4 {
-		return ""
-	}
-	if len(value) > width {
-		return value[:width-3] + "..."
-	}
-	return value
-}
-
-func renderWorkspaceRowInspector(
-	tableName string,
-	columns []table.Column,
-	structure []db.TableColumnInfo,
-	row table.Row,
-	rowNumber, selected int,
-	query string,
-	searching, expanded bool,
-	copyStatus string,
-	width, height int,
-) string {
-	indices := inspectorFieldIndices(columns, query)
-	if selected >= len(indices) {
-		selected = max(len(indices)-1, 0)
-	}
-	var output strings.Builder
-	output.WriteString(fmt.Sprintf("Row %d · %s · %d fields\n", rowNumber, tableName, len(columns)))
-	if searching {
-		output.WriteString("Find field: " + query + "\n")
-	} else if query != "" {
-		output.WriteString("Fields matching \"" + query + "\"\n")
-	}
-	if copyStatus != "" {
-		output.WriteString(copyStatus + "\n")
-	}
-	output.WriteString("\n")
-	if len(indices) == 0 {
-		output.WriteString("No fields match this search.\n\nEsc returns to the data grid.")
-		return output.String()
-	}
-
-	fieldIndex := indices[selected]
-	dataType := "unknown"
-	keyLabel := ""
-	if fieldIndex < len(structure) {
-		dataType = structure[fieldIndex].DataType
-		if structure[fieldIndex].PrimaryKey {
-			keyLabel = "  PK"
-		}
-	}
-	value := ""
-	if fieldIndex < len(row) {
-		value = row[fieldIndex]
-	}
-	formattedValue := prettyInspectorValue(value, dataType)
-	if expanded {
-		output.WriteString(columns[fieldIndex].Title + "  ·  " + dataType + keyLabel + "\n")
-		output.WriteString(strings.Repeat("─", max(min(width, 80), 20)) + "\n")
-		output.WriteString(formattedValue + "\n\n")
-		output.WriteString("Esc returns to the field list.")
-		return output.String()
-	}
-	if width < 100 {
-		visibleRows := max(height-6, 4)
-		start := max(selected-visibleRows/2, 0)
-		if start+visibleRows > len(indices) {
-			start = max(len(indices)-visibleRows, 0)
-		}
-		for position := start; position < len(indices) && position < start+visibleRows; position++ {
-			index := indices[position]
-			marker := "  "
-			if position == selected {
-				marker = "> "
-			}
-			typeName := "unknown"
-			if index < len(structure) {
-				typeName = structure[index].DataType
-			}
-			valuePreview := ""
-			if index < len(row) {
-				valuePreview = truncateInspectorValue(row[index], max(width-len(columns[index].Title)-len(typeName)-7, 8))
-			}
-			output.WriteString(fmt.Sprintf("%s%-16s %-12s %s\n", marker, truncateInspectorValue(columns[index].Title, 16), truncateInspectorValue(typeName, 12), valuePreview))
-		}
-		output.WriteString("\nEnter opens the full selected value.")
-		return output.String()
-	}
-
-	listWidth := min(max(width/3, 34), 52)
-	previewWidth := max(width-listWidth-3, 20)
-	visibleRows := max(height-6, 4)
-	start := max(selected-visibleRows/2, 0)
-	if start+visibleRows > len(indices) {
-		start = max(len(indices)-visibleRows, 0)
-	}
-	listLines := make([]string, 0, visibleRows)
-	for position := start; position < len(indices) && len(listLines) < visibleRows; position++ {
-		index := indices[position]
-		marker := "  "
-		if position == selected {
-			marker = "> "
-		}
-		typeName := "unknown"
-		if index < len(structure) {
-			typeName = structure[index].DataType
-		}
-		valuePreview := ""
-		if index < len(row) {
-			valuePreview = truncateInspectorValue(row[index], max(listWidth-len(columns[index].Title)-len(typeName)-7, 8))
-		}
-		listLines = append(listLines, fmt.Sprintf("%s%-16s %-12s %s", marker, truncateInspectorValue(columns[index].Title, 16), truncateInspectorValue(typeName, 12), valuePreview))
-	}
-	previewLines := strings.Split(columns[fieldIndex].Title+"  ·  "+dataType+keyLabel+"\n\n"+formattedValue, "\n")
-	lineCount := max(len(listLines), len(previewLines))
-	for index := 0; index < lineCount; index++ {
-		left, right := "", ""
-		if index < len(listLines) {
-			left = truncateInspectorValue(listLines[index], listWidth)
-		}
-		if index < len(previewLines) {
-			right = truncateInspectorValue(previewLines[index], previewWidth)
-		}
-		output.WriteString(fmt.Sprintf("%-*s │ %s\n", listWidth, left, right))
-	}
-	return output.String()
-}
-
 func renderWorkspaceRowPeek(tableName string, columns []table.Column, row table.Row, rowNumber, width int) string {
 	var output strings.Builder
 	output.WriteString(fmt.Sprintf("Row %d · %s\n\n", rowNumber, tableName))
@@ -880,6 +756,77 @@ func renderWorkspaceRowPeek(tableName string, columns []table.Column, row table.
 	return output.String()
 }
 
+func renderWorkspaceHelp(m workspaceModel) string {
+	var title string
+	var commands []string
+	switch {
+	case m.mode == workspaceModeEditor:
+		title = "Query help"
+		commands = []string{
+			"Ctrl+A  Run all SQL in the editor",
+			"Ctrl+X  Cancel the running query",
+			"Ctrl+R  Clear the result panel",
+			"Tab     Cycle autocomplete suggestions",
+			"Enter   Accept a suggestion",
+			"Esc     Return to the database workspace",
+			"F1      Open or close this help while editing",
+		}
+	case m.filterEditing:
+		title = "Filter help"
+		commands = []string{
+			"Type a filter as column=value",
+			"Enter   Apply the filter",
+			"Esc     Cancel without changing the current filter",
+			"F1      Open or close this help while typing",
+		}
+	case m.navigatorOpen:
+		title = "Table navigator help"
+		commands = []string{
+			"↑/↓ or j/k  Select a table",
+			"Enter       Open the selected table",
+			"b           Close the navigator",
+			"r           Retry a failed load",
+			"Ctrl+X      Cancel an active load",
+			"c           Choose another connection",
+			"q           Quit Maxim",
+			"?           Open or close this help",
+		}
+	case m.rowPeek:
+		title = "Row peek help"
+		commands = []string{
+			"↑/↓ or j/k  Scroll one line",
+			"PgUp/PgDn   Scroll one page",
+			"Esc         Return to the same grid row",
+			"b           Open the table navigator",
+			"?           Open or close this help",
+		}
+	case m.tab == workspaceTabStructure:
+		title = "Structure help"
+		commands = []string{
+			"Tab or →  Show table data",
+			"↑/↓        Scroll column details",
+			"b          Open the table navigator",
+			"e          Open Query",
+			"?          Open or close this help",
+		}
+	default:
+		title = "Data help"
+		commands = []string{
+			"↑/↓ or j/k  Select a row",
+			"Enter       Peek at the selected row",
+			"/           Filter with column=value",
+			"s / S       Change sort column / direction",
+			"n / p       Next / previous page",
+			"Tab or ←    Show table structure",
+			"b           Open the table navigator",
+			"e           Open Query",
+			"Ctrl+X      Cancel an active load",
+			"?           Open or close this help",
+		}
+	}
+	return title + "\n\n" + strings.Join(commands, "\n")
+}
+
 func (m workspaceModel) View() string {
 	accent := lipgloss.Color("6")
 	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
@@ -892,6 +839,9 @@ func (m workspaceModel) View() string {
 		return clipWorkspaceView(lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, message), m.width, m.height)
 	}
 	status := lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render("● connected")
+	if m.disconnected {
+		status = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render("● disconnected")
+	}
 	top := header.Render("MAXIM") + "  " + m.dbName
 	if m.width >= 100 {
 		top += "  " + muted.Render(m.connectionLabel)
@@ -900,18 +850,23 @@ func (m workspaceModel) View() string {
 	top = ansi.Truncate(top, max(m.width, 1), "…")
 	separatorWidth := max(m.width, 30)
 	separator := muted.Render(strings.Repeat("─", separatorWidth))
+	if m.helpOpen {
+		help := renderWorkspaceHelp(m)
+		footer := muted.Render("Esc close help • F1 close help")
+		return clipWorkspaceView(top+"\n"+separator+"\n"+help+"\n"+footer, m.width, m.height)
+	}
 
 	if m.mode == workspaceModeEditor && m.editor != nil {
-		footer := muted.Render("Esc workspace • Ctrl+A run • Ctrl+X cancel • Ctrl+R clear")
+		footer := muted.Render("Esc workspace • Ctrl+A run • Ctrl+X cancel • Ctrl+R clear • F1 help")
 		return clipWorkspaceView(top+"\n"+separator+"\n"+header.Render("Query")+"\n"+m.editor.View()+"\n"+footer, m.width, m.height)
 	}
 
 	if m.navigatorOpen {
 		explorerContent := header.Render("Choose a table") + "  " + muted.Render("public") + "\n\n"
 		if m.loading && len(m.tables) == 0 {
-			explorerContent += muted.Render("Loading tables…")
+			explorerContent += muted.Render("Loading · discovering tables…")
 		} else if len(m.tables) == 0 {
-			explorerContent += muted.Render("No tables")
+			explorerContent += muted.Render("Empty schema · no tables found in public")
 		} else {
 			availableRows := m.height - 10
 			if m.pendingBrowse != nil {
@@ -935,7 +890,7 @@ func (m workspaceModel) View() string {
 				style := muted
 				if index == m.cursor {
 					prefix = "> "
-					style = lipgloss.NewStyle().Foreground(accent).Bold(m.focus == workspaceFocusExplorer)
+					style = lipgloss.NewStyle().Foreground(accent).Bold(true)
 				}
 				tableName = ansi.Truncate(tableName, max(m.width-4, 1), "…")
 				explorerContent += prefix + style.Render(tableName) + "\n"
@@ -948,11 +903,13 @@ func (m workspaceModel) View() string {
 			explorerContent += "\n" + muted.Render("Opening "+m.pendingBrowse.tableName+"…") + "\n"
 		}
 		if m.notice != "" {
-			explorerContent += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(m.notice) + "\n"
+			explorerContent += "\n" + renderWorkspaceNotice(m.notice) + "\n"
+		} else if m.err != "" {
+			explorerContent += "\n" + renderWorkspaceNotice(m.err) + "\n"
 		}
-		footer := muted.Render("↑/↓ select • Enter open • b close • c connections • q quit")
+		footer := muted.Render("↑/↓ select • Enter open • b close • c connections • ? help • q quit")
 		if m.failedBrowse != nil || m.tablesLoadFailed {
-			footer = muted.Render("r retry • ↑/↓ select • Enter open • b close • c connections • q quit")
+			footer = muted.Render("r retry • ↑/↓ select • Enter open • b close • c connections • ? help • q quit")
 		}
 		return clipWorkspaceView(top+"\n"+separator+"\n\n"+explorerContent+"\n"+footer, m.width, m.height)
 	}
@@ -983,19 +940,22 @@ func (m workspaceModel) View() string {
 	}
 	contentBody += "\n"
 	if m.loading && m.pendingBrowse != nil {
-		contentBody += muted.Render("Loading "+m.pendingBrowse.tableName+"…") + "\n"
+		contentBody += muted.Render("Loading · "+m.pendingBrowse.tableName+"…  Ctrl+X cancel") + "\n"
 	}
 	if m.notice != "" {
-		contentBody += lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(m.notice) + "\n"
+		contentBody += renderWorkspaceNotice(m.notice) + "\n"
 	}
 	contentBody += clipWorkspaceView(m.content.View(), m.width, m.content.Height)
 
 	footerText := "↑/↓ row • Enter peek • / filter • s column • S direction • n/p page • b tables • e query • q quit"
-	if m.rowPeek {
-		footerText = "↑/↓ scroll • PgUp/PgDn page • Esc data grid • q quit"
-	}
-	if m.width > 0 && m.width < 90 {
-		footerText = "↑/↓ row • Enter peek • / filter • s sort • n/p page • b tables • q quit"
+	if m.filterEditing {
+		footerText = "Enter apply filter • Esc cancel • F1 help"
+	} else if m.rowPeek {
+		footerText = "↑/↓ scroll • PgUp/PgDn page • Esc data grid • ? help • q quit"
+	} else if m.width > 0 && m.width < 90 {
+		footerText = "↑/↓ row • Enter peek • / filter • s sort • n/p page • b tables • ? help • q quit"
+	} else {
+		footerText += " • ? help"
 	}
 	if m.failedBrowse != nil {
 		footerText = "r retry • " + footerText
@@ -1015,6 +975,14 @@ func clipWorkspaceView(content string, width, height int) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func renderWorkspaceNotice(message string) string {
+	color := lipgloss.Color("1")
+	if strings.HasPrefix(message, "Cancelled") || strings.HasPrefix(message, "Timed out") {
+		color = lipgloss.Color("3")
+	}
+	return lipgloss.NewStyle().Foreground(color).Render(message)
 }
 
 func RunWorkspace(database *sql.DB, dbName, connectionLabel string) (bool, error) {

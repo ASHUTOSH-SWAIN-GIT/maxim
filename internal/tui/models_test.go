@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"context"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"slices"
@@ -13,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/lib/pq"
 )
 
 func key(keyType tea.KeyType) tea.KeyMsg {
@@ -372,8 +375,8 @@ func TestWorkspaceNavigationAndTableContent(t *testing.T) {
 
 	updated, _ = model.Update(key(tea.KeyTab))
 	model = updated.(workspaceModel)
-	if model.focus != workspaceFocusContent || model.tab != workspaceTabStructure || !strings.Contains(model.content.View(), "Structure · orders") {
-		t.Fatalf("structure tab did not activate: focus=%d tab=%d content=%q", model.focus, model.tab, model.content.View())
+	if model.tab != workspaceTabStructure || !strings.Contains(model.content.View(), "Structure · orders") {
+		t.Fatalf("structure tab did not activate: tab=%d content=%q", model.tab, model.content.View())
 	}
 	if view := model.View(); !strings.Contains(view, "MAXIM") || !strings.Contains(view, "connected") {
 		t.Fatalf("workspace chrome missing: %q", view)
@@ -652,5 +655,101 @@ func TestWorkspaceFailedPagePreservesCommittedStateAndRetries(t *testing.T) {
 	model = updated.(workspaceModel)
 	if command == nil || model.activeRequestID != 3 || model.pendingBrowse == nil || model.pendingBrowse.request.Cursor != "100" {
 		t.Fatalf("retry did not restore failed request: %#v", model)
+	}
+}
+
+func TestWorkspaceContextualHelpDoesNotCaptureEditorTyping(t *testing.T) {
+	model := initialWorkspaceModel(nil, "app", "user@host:5432")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	model = updated.(workspaceModel)
+	if !model.helpOpen || !strings.Contains(model.View(), "Table navigator help") {
+		t.Fatalf("navigator help did not open: %q", model.View())
+	}
+	updated, _ = model.Update(key(tea.KeyEsc))
+	model = updated.(workspaceModel)
+	if model.helpOpen {
+		t.Fatal("escape did not close help")
+	}
+
+	model.navigatorOpen = false
+	model.selectedTable = "orders"
+	model.columns = []table.Column{{Title: "id"}}
+	model.rows = []table.Row{{"1"}}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	model = updated.(workspaceModel)
+	if !strings.Contains(model.View(), "Data help") {
+		t.Fatalf("data help was not contextual: %q", model.View())
+	}
+	updated, _ = model.Update(key(tea.KeyEsc))
+	model = updated.(workspaceModel)
+
+	editor := initialSQLEditorModel(nil, "app")
+	defer editor.cancelOperations()
+	model.editor = &editor
+	model.mode = workspaceModeEditor
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	model = updated.(workspaceModel)
+	if model.helpOpen || model.editor.textarea.Value() != "?" {
+		t.Fatal("ordinary editor typing was captured as a global help command")
+	}
+	updated, _ = model.Update(key(tea.KeyF1))
+	model = updated.(workspaceModel)
+	if !model.helpOpen || !strings.Contains(model.View(), "Query help") {
+		t.Fatalf("query help did not open with F1: %q", model.View())
+	}
+	model.mode = workspaceModeBrowse
+	model.helpOpen = true
+	model.filterEditing = true
+	if help := renderWorkspaceHelp(model); !strings.Contains(help, "Filter help") {
+		t.Fatalf("filter help was not contextual: %q", help)
+	}
+	model.filterEditing = false
+	model.rowPeek = true
+	if help := renderWorkspaceHelp(model); !strings.Contains(help, "Row peek help") {
+		t.Fatalf("row-peek help was not contextual: %q", help)
+	}
+	model.rowPeek = false
+	model.tab = workspaceTabStructure
+	if help := renderWorkspaceHelp(model); !strings.Contains(help, "Structure help") {
+		t.Fatalf("structure help was not contextual: %q", help)
+	}
+}
+
+func TestWorkspaceOperationalStatesAreDistinct(t *testing.T) {
+	tests := []struct {
+		name             string
+		err              error
+		want             string
+		wantDisconnected bool
+	}{
+		{"cancelled", context.Canceled, "Cancelled", false},
+		{"timeout", context.DeadlineExceeded, "Timed out", false},
+		{"permission", &pq.Error{Code: "42501", Message: "not allowed"}, "Permission denied", false},
+		{"disconnected", driver.ErrBadConn, "Disconnected", true},
+		{"other", errors.New("bad query"), "Load failed", false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			message, disconnected := formatWorkspaceFailure(test.err)
+			if !strings.Contains(message, test.want) || disconnected != test.wantDisconnected {
+				t.Fatalf("state = %q, disconnected=%t", message, disconnected)
+			}
+		})
+	}
+
+	model := initialWorkspaceModel(nil, "app", "user@host:5432")
+	model.loading = true
+	updated, _ := model.Update(key(tea.KeyCtrlX))
+	model = updated.(workspaceModel)
+	if model.loading || !strings.Contains(model.notice, "Cancelled") {
+		t.Fatalf("explicit load cancellation was not visible: %#v", model)
+	}
+	if empty := renderWorkspaceRows("orders", []table.Column{{Title: "id"}}, nil, 0, 80, 0); !strings.Contains(empty, "Empty result") {
+		t.Fatalf("empty result state is unclear: %q", empty)
+	}
+	model.width, model.height = 80, 24
+	model.disconnected = true
+	if view := model.View(); !strings.Contains(view, "disconnected") {
+		t.Fatalf("connection-loss state missing from header: %q", view)
 	}
 }

@@ -140,6 +140,9 @@ func TestIntegrationSchemaDiscoveryAndPagination(t *testing.T) {
 	if !firstPage.KeysetEnabled || !firstPage.HasNext || firstPage.NextCursor != "2" || firstPage.Rows[0][0] != "1" {
 		t.Fatalf("unexpected first keyset page: %#v", firstPage)
 	}
+	if len(firstPage.Structure) != 4 || firstPage.Structure[0].Name != "id" {
+		t.Fatalf("browse result did not carry its discovered structure: %#v", firstPage.Structure)
+	}
 	secondPage, err := BrowseTable(database, tableName, TableBrowseRequest{Limit: 2, Cursor: firstPage.NextCursor})
 	if err != nil {
 		t.Fatalf("browse second keyset page: %v", err)

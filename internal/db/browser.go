@@ -21,6 +21,7 @@ type TableBrowseRequest struct {
 }
 
 type TableBrowsePage struct {
+	Structure     []TableColumnInfo
 	Columns       []table.Column
 	Rows          []table.Row
 	HasNext       bool
@@ -133,6 +134,7 @@ func BrowseTableContext(parent context.Context, database *sql.DB, tableName stri
 		return TableBrowsePage{}, err
 	}
 	result := TableBrowsePage{
+		Structure:     structure,
 		Columns:       make([]table.Column, len(columnNames)),
 		KeysetEnabled: keyset,
 		SortColumn:    request.SortColumn,
