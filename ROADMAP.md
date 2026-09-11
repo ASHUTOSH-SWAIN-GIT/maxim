@@ -80,8 +80,8 @@ Depends on Phase 0 request/state handling.
 - [x] **M1.3 Cursor correctness:** use lossless cursor values and distinguish an absent cursor from an empty string. Bind cursors to the current connection, table, sort, and filter.
 - [x] **M1.4 Stable ordering:** support composite primary keys; add unique tie-breakers for custom sorts. Define NULL placement and both traversal directions explicitly. Use keyset only where the ordering and types support it.
 - [x] **M1.5 Honest fallback:** show when offset pagination is used and explain its limitations. Never promise stable row positions for changing data or a unique order where no usable key exists.
-- [ ] **M1.6 Resource limits:** enforce page-size limits and configurable deadlines. Define byte limits and lazy/full-value retrieval for oversized cells; a 100-row limit alone does not bound memory.
-- [ ] **M1.7 Large fixtures:** add opt-in benchmarks with 100,000 and 1,000,000 rows, duplicate sort values, compound keys, nulls, long text, JSON, Unicode, and concurrent writes.
+- [x] **M1.6 Resource limits:** enforce page-size limits and configurable deadlines. Define byte limits and lazy/full-value retrieval for oversized cells; a 100-row limit alone does not bound memory.
+- [x] **M1.7 Large fixtures:** add opt-in benchmarks with 100,000 and 1,000,000 rows, duplicate sort values, compound keys, nulls, long text, JSON, Unicode, and concurrent writes.
 
 Done when: forward/backward traversal on a fixed dataset has no skipped or duplicated records across supported orderings; raw values survive rendering; results stay bounded; concurrent-change behavior is documented. Record benchmark hardware, indexes, query plans, latency, and memory rather than advertising unmeasured speed guarantees.
 
@@ -198,9 +198,9 @@ Do not start these unless recurring user feedback justifies changing the roadmap
 
 ## Current work
 
-- **Status:** Phase 0 and M1.1–M1.5 complete; Phase 1 is in progress.
-- **Next item:** M1.6 — define bounded oversized-cell handling and configurable resource limits before changing the fetch contract.
-- **Following items:** M1.7 large fixtures; then Phase 2 searchable navigation and richer browsing controls.
+- **Status:** Phases 0–1 complete.
+- **Next item:** M2.1 — add a searchable schema/table navigator, include clearly labelled views, and support manual metadata refresh.
+- **Following items:** M2.2 typed filter builder; M2.3 searchable sort selection; M2.4 wide-table controls.
 - **First milestone:** reliable browsing foundation (Phases 0–1).
 - **Planning-only change:** this document does not implement the features above or authorize external releases, telemetry, or database writes.
 
@@ -221,3 +221,5 @@ Do not start these unless recurring user feedback justifies changing the roadmap
 | 2026-09-10 | M1.3 | Replaced display-string cursors with cloned typed raw values; distinguished nil cursors from empty-string keys; scoped cursors to connection, relation, sort direction, and filter; rejected mismatches before data access; verified empty-text traversal and cross-scope rejection against disposable PostgreSQL. |
 | 2026-09-10 | M1.4 | Added ordered composite-primary-key metadata and multi-value cursors; appended the complete primary key as a unique custom-sort tie-breaker; made ascending/descending and NULLS LAST semantics explicit; verified duplicate values and compound-key traversal against disposable PostgreSQL. |
 | 2026-09-10 | M1.5 | Added explicit keyset/offset mode, stability, ordering-column, and fallback-reason results; surfaced fallback limitations in the workspace; verified nullable-sort and keyless-table behavior with unit and PostgreSQL integration tests. |
+| 2026-09-11 | M1.6 | Added configurable browse deadlines plus enforced row, retained-cell, and retained-page limits; labelled UTF-8-safe truncated previews; added primary-key row locators and asynchronous full-row loading on row peek; verified limits and lazy retrieval against disposable PostgreSQL. |
+| 2026-09-11 | M1.7 | Added opt-in 100k/1M PostgreSQL fixtures and benchmarks for indexed first/deep keysets, deep nullable offsets, and reads during writes; captured hardware, plans, latency, bytes, and allocations; validated the 100k harness and documented that its one-iteration result is not a speed claim. |

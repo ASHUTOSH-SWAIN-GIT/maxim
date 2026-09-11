@@ -296,6 +296,15 @@ and full primary-key tie-breakers keep duplicate custom-sort values stable in
 both directions. NULL values are always placed last. Maxim visibly falls back to
 offset pagination when a nullable sort or missing primary key prevents safe
 keyset traversal, including a warning about shifting or non-unique row order.
+Browse requests default to 100 rows, a 64 KiB retained preview per cell, a
+4 MiB retained page budget, and a 10-second deadline; callers can lower or
+raise these within the enforced maximums. Oversized values are labelled with
+their original size. Opening row peek lazily reloads the complete row when a
+primary key is available, so full values are fetched only on explicit inspection.
+
+Large browsing benchmarks are opt-in: `make benchmark-db-100k` and
+`make benchmark-db-1m`. See [`benchmarks/README.md`](benchmarks/README.md) for
+the fixture, recorded metrics, and result-reporting rules.
 - `Esc` - Return from the row peek to the data grid
 - `/` - Apply a server-side `column=value` filter
 - `s` - Cycle the sort column

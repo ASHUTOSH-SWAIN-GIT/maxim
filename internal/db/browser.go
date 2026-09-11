@@ -7,20 +7,24 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/lib/pq"
 )
 
 type TableBrowseRequest struct {
-	Limit        int
-	Offset       int
-	SortColumn   string
-	Descending   bool
-	FilterColumn string
-	FilterValue  string
-	ConnectionID uint64
-	Cursor       *TableCursor
+	Limit         int
+	Offset        int
+	SortColumn    string
+	Descending    bool
+	FilterColumn  string
+	FilterValue   string
+	ConnectionID  uint64
+	Cursor        *TableCursor
+	Timeout       time.Duration
+	CellByteLimit int
+	PageByteLimit int
 }
 
 type TableCursor struct {
@@ -66,7 +70,10 @@ type TableBrowsePage struct {
 	PaginationReason string
 	StableOrdering   bool
 	OrderColumns     []string
+	RowKeys          []RowKey
 }
+
+type RowKey map[string]CellValue
 
 // BrowseTable fetches one bounded, deterministically ordered page. It uses
 // keyset pagination when every ordering value is non-null and safely falls
@@ -96,7 +103,14 @@ func BrowseRelationContext(parent context.Context, database *sql.DB, relation Re
 			return TableBrowsePage{}, err
 		}
 	}
-	ctx, cancel := context.WithTimeout(parent, BrowseTimeout)
+	timeout := request.Timeout
+	if timeout <= 0 {
+		timeout = BrowseTimeout
+	}
+	if timeout > MaximumBrowseTimeout {
+		timeout = MaximumBrowseTimeout
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
 	structure, err := GetRelationStructureContext(ctx, database, relation)
@@ -137,8 +151,14 @@ func BrowseRelationContext(parent context.Context, database *sql.DB, relation Re
 	if _, ok := columnsByName[request.SortColumn]; !ok {
 		return TableBrowsePage{}, fmt.Errorf("unknown sort column %q", request.SortColumn)
 	}
-	if request.Limit <= 0 || request.Limit > 500 {
+	if request.Limit <= 0 || request.Limit > MaximumPageSize {
 		request.Limit = 100
+	}
+	if request.CellByteLimit <= 0 {
+		request.CellByteLimit = DefaultCellByteLimit
+	}
+	if request.PageByteLimit <= 0 {
+		request.PageByteLimit = DefaultPageByteLimit
 	}
 	if request.Offset < 0 {
 		request.Offset = 0
@@ -251,6 +271,9 @@ func BrowseRelationContext(parent context.Context, database *sql.DB, relation Re
 		result.Columns[index] = table.Column{Title: name, Width: 20}
 		columnIndexes[name] = index
 	}
+	pageBytes := 0
+	var lastCursorValues []CellValue
+	cursorSafe := true
 	for rows.Next() {
 		values := make([]any, len(columnNames))
 		scanArguments := make([]any, len(columnNames))
@@ -265,25 +288,65 @@ func BrowseRelationContext(parent context.Context, database *sql.DB, relation Re
 			break
 		}
 		row := make(DataRow, len(values))
+		fullRow := make(DataRow, len(values))
+		effectiveCellLimit := request.CellByteLimit
+		if len(values) > 0 {
+			effectiveCellLimit = min(effectiveCellLimit, max(request.PageByteLimit/(len(values)+len(primaryKeys)), 1))
+		}
 		for index, value := range values {
 			databaseTypeName := ""
 			if index < len(columnTypes) {
 				databaseTypeName = columnTypes[index].DatabaseTypeName()
 			}
-			row[index] = newCellValue(value, databaseTypeName)
+			fullRow[index] = newCellValue(value, databaseTypeName)
+			row[index] = fullRow[index].bounded(effectiveCellLimit)
 		}
+		rowKey := make(RowKey, len(primaryKeys))
+		rowKeySafe := true
+		rowBytes := 0
+		for _, cell := range row {
+			rowBytes += cell.retainedBytes()
+		}
+		for _, name := range primaryKeys {
+			value := fullRow[columnIndexes[name]]
+			if value.retainedBytes() > request.CellByteLimit {
+				rowKeySafe = false
+				break
+			}
+			rowKey[name] = value.Clone()
+			rowBytes += value.retainedBytes()
+		}
+		if len(result.Rows) > 0 && pageBytes+rowBytes > request.PageByteLimit {
+			result.HasNext = true
+			break
+		}
+		pageBytes += rowBytes
 		result.Rows = append(result.Rows, row)
+		if !rowKeySafe {
+			rowKey = nil
+		}
+		result.RowKeys = append(result.RowKeys, rowKey)
+		if keyset {
+			lastCursorValues = make([]CellValue, len(orderColumns))
+			for index, name := range orderColumns {
+				lastCursorValues[index] = fullRow[columnIndexes[name]].Clone()
+				if lastCursorValues[index].retainedBytes() > request.CellByteLimit {
+					cursorSafe = false
+				}
+			}
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return TableBrowsePage{}, err
 	}
-	if keyset && len(result.Rows) > 0 {
-		cursorValues := make([]CellValue, len(orderColumns))
-		for index, name := range orderColumns {
-			cursorValues[index] = result.Rows[len(result.Rows)-1][columnIndexes[name]].Clone()
-		}
+	if keyset && !cursorSafe {
+		result.KeysetEnabled = false
+		result.PaginationMode = PaginationOffset
+		result.PaginationReason = "offset pagination: an ordering value exceeds the cursor byte limit; rows may shift while data changes"
+	}
+	if keyset && cursorSafe && len(result.Rows) > 0 {
 		result.NextCursor = &TableCursor{
-			Values:       cursorValues,
+			Values:       lastCursorValues,
 			OrderColumns: slices.Clone(orderColumns),
 			ConnectionID: request.ConnectionID,
 			Relation:     relation,
@@ -294,6 +357,75 @@ func BrowseRelationContext(parent context.Context, database *sql.DB, relation Re
 		}
 	}
 	return result, nil
+}
+
+// FetchRelationRowContext retrieves one complete row after the user explicitly
+// asks to inspect a truncated preview. It requires the table's full primary key.
+func FetchRelationRowContext(parent context.Context, database *sql.DB, relation Relation, key RowKey, timeout time.Duration) (DataRow, error) {
+	if err := relation.Validate(); err != nil {
+		return nil, err
+	}
+	if timeout <= 0 {
+		timeout = BrowseTimeout
+	}
+	if timeout > MaximumBrowseTimeout {
+		timeout = MaximumBrowseTimeout
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+	structure, err := GetRelationStructureContext(ctx, database, relation)
+	if err != nil {
+		return nil, err
+	}
+	primaryKeys := make([]TableColumnInfo, 0)
+	for _, column := range structure {
+		if column.PrimaryKey {
+			primaryKeys = append(primaryKeys, column)
+		}
+	}
+	sort.Slice(primaryKeys, func(i, j int) bool { return primaryKeys[i].PrimaryKeyPosition < primaryKeys[j].PrimaryKeyPosition })
+	if len(primaryKeys) == 0 || len(key) != len(primaryKeys) {
+		return nil, fmt.Errorf("full row retrieval requires a complete primary key")
+	}
+	conditions := make([]string, len(primaryKeys))
+	arguments := make([]any, len(primaryKeys))
+	for index, column := range primaryKeys {
+		value, ok := key[column.Name]
+		if !ok || value.IsNull || value.Raw == nil {
+			return nil, fmt.Errorf("full row retrieval requires primary key column %q", column.Name)
+		}
+		conditions[index] = fmt.Sprintf("%s = $%d", pq.QuoteIdentifier(column.Name), index+1)
+		arguments[index] = value.Raw
+	}
+	query := "SELECT * FROM " + relation.QualifiedName() + " WHERE " + strings.Join(conditions, " AND ") + " LIMIT 2"
+	rows, err := database.QueryContext(ctx, query, arguments...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	columnTypes, err := rows.ColumnTypes()
+	if err != nil {
+		return nil, err
+	}
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("row no longer exists")
+	}
+	values := make([]any, len(columnTypes))
+	scanArguments := make([]any, len(values))
+	for index := range values {
+		scanArguments[index] = &values[index]
+	}
+	if err := rows.Scan(scanArguments...); err != nil {
+		return nil, err
+	}
+	row := make(DataRow, len(values))
+	for index, value := range values {
+		row[index] = newCellValue(value, columnTypes[index].DatabaseTypeName())
+	}
+	return row, nil
 }
 
 func (cursor *TableCursor) validateRequestScope(relation Relation, request TableBrowseRequest) error {

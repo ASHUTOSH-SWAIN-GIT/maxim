@@ -369,6 +369,27 @@ func TestIntegrationStableOrderingAndPaginationFallbacks(t *testing.T) {
 	}
 }
 
+func TestIntegrationBrowseBoundsLargeCellsAndFetchesFullRowLazily(t *testing.T) {
+	database, _ := openIntegrationDatabase(t)
+	relation := Relation{Schema: "public", Name: uniqueDatabaseObject("large_cell")}
+	t.Cleanup(func() { _, _ = database.Exec("DROP TABLE IF EXISTS " + relation.QualifiedName()) })
+	if _, err := database.Exec("CREATE TABLE " + relation.QualifiedName() + " (id BIGINT PRIMARY KEY, payload TEXT NOT NULL)"); err != nil {
+		t.Fatalf("create large-cell fixture: %v", err)
+	}
+	payload := strings.Repeat("世界-data-", 20000)
+	if _, err := database.Exec("INSERT INTO "+relation.QualifiedName()+" (id, payload) VALUES (1, $1)", payload); err != nil {
+		t.Fatalf("insert large-cell fixture: %v", err)
+	}
+	page, err := BrowseRelation(database, relation, TableBrowseRequest{Limit: 50, CellByteLimit: 1024, PageByteLimit: 2048})
+	if err != nil || len(page.Rows) != 1 || !page.Rows[0][1].Truncated || page.Rows[0][1].retainedBytes() > 1024 || len(page.RowKeys) != 1 {
+		t.Fatalf("large cell was not bounded: page=%#v err=%v", page, err)
+	}
+	full, err := FetchRelationRowContext(context.Background(), database, relation, page.RowKeys[0], time.Second)
+	if err != nil || len(full) != 2 || full[1].Truncated || full[1].Text != payload {
+		t.Fatalf("lazy full-row retrieval failed: row=%#v err=%v", full, err)
+	}
+}
+
 func TestIntegrationExecuteQuery(t *testing.T) {
 	database, _ := openIntegrationDatabase(t)
 	result := ExecuteQuery(database, "SELECT 42 AS answer, 'maxim' AS project")

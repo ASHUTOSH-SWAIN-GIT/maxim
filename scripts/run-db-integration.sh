@@ -62,4 +62,10 @@ if [ "$configured_count" -eq 0 ]; then
   export MAXIM_TEST_DB_HOST MAXIM_TEST_DB_PORT MAXIM_TEST_DB_USER MAXIM_TEST_DB_PASSWORD MAXIM_TEST_DB_NAME
 fi
 
-go test -tags=integration -count=1 -v ./cmd/... ./internal/db/...
+if [ -n "${MAXIM_BENCH_ROWS-}" ]; then
+  benchmark_time=${MAXIM_BENCH_TIME-3s}
+  echo "Running opt-in database benchmark with $MAXIM_BENCH_ROWS rows for $benchmark_time per case..."
+  go test -v -tags=integration -run '^$' -bench '^BenchmarkBrowseLargeFixture$' -benchmem -benchtime "$benchmark_time" -count=1 ./internal/db/...
+else
+  go test -tags=integration -count=1 -v ./cmd/... ./internal/db/...
+fi

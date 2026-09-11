@@ -1,4 +1,4 @@
-.PHONY: all build test test-race test-integration-cli test-integration-db test-integration-docker coverage fmt fmt-check vet tidy tidy-check ci clean
+.PHONY: all build test test-race test-integration-cli test-integration-db test-integration-docker benchmark-db-100k benchmark-db-1m coverage fmt fmt-check vet tidy tidy-check ci clean
 
 all: ci
 
@@ -19,6 +19,12 @@ test-integration-db:
 
 test-integration-docker:
 	go test -tags=integration -count=1 -v ./internal/docker/...
+
+benchmark-db-100k:
+	MAXIM_BENCH_ROWS=100000 ./scripts/run-db-integration.sh
+
+benchmark-db-1m:
+	MAXIM_BENCH_ROWS=1000000 ./scripts/run-db-integration.sh
 
 coverage:
 	go test -covermode=atomic -coverprofile=coverage.out ./...

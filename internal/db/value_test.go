@@ -5,7 +5,18 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
+
+func TestCellValueByteLimitKeepsUTF8ValidAndMarksPreview(t *testing.T) {
+	cell := newCellValue([]byte(strings.Repeat("世界", 100)), "TEXT").bounded(64)
+	if !cell.Truncated || cell.OriginalBytes <= 64 || cell.retainedBytes() > 64 || !utf8.ValidString(cell.Text) {
+		t.Fatalf("cell was not safely bounded: %#v retained=%d", cell, cell.retainedBytes())
+	}
+	if !strings.Contains(cell.DisplayText(false), "truncated from") {
+		t.Fatalf("truncation was hidden: %q", cell.DisplayText(false))
+	}
+}
 
 func TestCellValueKeepsIdentitySeparateFromDisplay(t *testing.T) {
 	nullCell := newCellValue(nil, "TEXT")

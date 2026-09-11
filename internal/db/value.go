@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 // CellValue keeps database identity separate from terminal presentation.
@@ -16,6 +17,47 @@ type CellValue struct {
 	DatabaseTypeName string
 	IsNull           bool
 	Text             string
+	Truncated        bool
+	OriginalBytes    int
+}
+
+func (cell CellValue) retainedBytes() int {
+	size := len(cell.Text)
+	switch value := cell.Raw.(type) {
+	case []byte:
+		size += len(value)
+	case string:
+		size += len(value)
+	}
+	return size
+}
+
+func (cell CellValue) bounded(byteLimit int) CellValue {
+	if byteLimit <= 0 || cell.IsNull || cell.retainedBytes() <= byteLimit {
+		return cell
+	}
+	cell.OriginalBytes = cell.retainedBytes()
+	cell.Truncated = true
+	textLimit := max(byteLimit/2, 1)
+	if len(cell.Text) > textLimit {
+		end := textLimit
+		for end > 0 && !utf8.RuneStart(cell.Text[end]) {
+			end--
+		}
+		cell.Text = cell.Text[:end]
+	}
+	if value, ok := cell.Raw.([]byte); ok {
+		rawLimit := max(byteLimit-len(cell.Text), 0)
+		if len(value) > rawLimit {
+			cell.Raw = append([]byte(nil), value[:rawLimit]...)
+		}
+	} else if value, ok := cell.Raw.(string); ok {
+		rawLimit := max(byteLimit-len(cell.Text), 0)
+		if len(value) > rawLimit {
+			cell.Raw = value[:rawLimit]
+		}
+	}
+	return cell
 }
 
 type DataRow []CellValue
@@ -93,6 +135,9 @@ func (cell CellValue) DisplayText(multiline bool) string {
 		}
 	}
 	display := output.String()
+	if cell.Truncated {
+		display += fmt.Sprintf("… [truncated from %d bytes]", cell.OriginalBytes)
+	}
 	if cell.Text == "NULL" {
 		return `"NULL"`
 	}

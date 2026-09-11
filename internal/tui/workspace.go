@@ -63,6 +63,15 @@ type workspaceTableLoadedMsg struct {
 	filterColumn     string
 	filterValue      string
 	err              error
+	rowKeys          []db.RowKey
+}
+
+type workspaceFullRowLoadedMsg struct {
+	requestID uint64
+	relation  db.Relation
+	rowIndex  int
+	row       db.DataRow
+	err       error
 }
 
 type workspaceBrowseIntent struct {
@@ -87,6 +96,7 @@ type workspaceModel struct {
 	structure         []db.TableColumnInfo
 	columns           []table.Column
 	rows              []db.DataRow
+	rowKeys           []db.RowKey
 	rowCursor         int
 	rowPeek           bool
 	rowPeekGridOffset int
@@ -119,6 +129,8 @@ type workspaceModel struct {
 	tablesLoadFailed  bool
 	helpOpen          bool
 	disconnected      bool
+	fullRowLoading    bool
+	fullRowRequestID  uint64
 }
 
 func initialWorkspaceModel(database *sql.DB, dbName, connectionLabel string) workspaceModel {
@@ -159,7 +171,15 @@ func loadWorkspaceBrowse(ctx context.Context, database *sql.DB, relation db.Rela
 			paginationReason: page.PaginationReason,
 			sortColumn:       page.SortColumn, sortDescending: request.Descending,
 			filterColumn: request.FilterColumn, filterValue: request.FilterValue, err: err,
+			rowKeys: page.RowKeys,
 		}
+	}
+}
+
+func loadWorkspaceFullRow(database *sql.DB, relation db.Relation, key db.RowKey, rowIndex int, requestID uint64) tea.Cmd {
+	return func() tea.Msg {
+		row, err := db.FetchRelationRowContext(context.Background(), database, relation, key, db.BrowseTimeout)
+		return workspaceFullRowLoadedMsg{requestID: requestID, relation: relation, rowIndex: rowIndex, row: row, err: err}
 	}
 }
 
@@ -168,6 +188,8 @@ func (m *workspaceModel) startBrowse(intent workspaceBrowseIntent) tea.Cmd {
 		m.requestCancel()
 	}
 	m.nextRequestID++
+	m.fullRowRequestID++
+	m.fullRowLoading = false
 	m.activeRequestID = m.nextRequestID
 	ctx, cancel := context.WithCancel(context.Background())
 	m.requestContext = ctx
@@ -313,6 +335,7 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.structure = message.structure
 			m.columns = message.columns
 			m.rows = message.rows
+			m.rowKeys = message.rowKeys
 			m.offset = message.offset
 			m.hasNext = message.hasNext
 			m.nextCursor = message.nextCursor
@@ -335,6 +358,22 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if message.err == nil {
 			m.refreshContent()
 		}
+		return m, nil
+	case workspaceFullRowLoadedMsg:
+		if message.requestID != m.fullRowRequestID {
+			return m, nil
+		}
+		m.fullRowLoading = false
+		if message.relation != m.selectedRelation || message.rowIndex != m.rowCursor || !m.rowPeek {
+			return m, nil
+		}
+		if message.err != nil {
+			m.notice, _ = formatWorkspaceFailure(message.err)
+		} else if message.rowIndex >= 0 && message.rowIndex < len(m.rows) {
+			m.rows[message.rowIndex] = message.row
+			m.notice = ""
+		}
+		m.refreshContent()
 		return m, nil
 	}
 	if key, ok := message.(tea.KeyMsg); ok {
@@ -485,6 +524,13 @@ func (m workspaceModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.rowPeekGridOffset = m.content.YOffset
 				m.rowPeek = true
 				m.refreshContent()
+				for _, cell := range m.rows[m.rowCursor] {
+					if cell.Truncated && m.rowCursor < len(m.rowKeys) && len(m.rowKeys[m.rowCursor]) > 0 {
+						m.fullRowLoading = true
+						m.fullRowRequestID++
+						return m, loadWorkspaceFullRow(m.db, m.selectedRelation, m.rowKeys[m.rowCursor], m.rowCursor, m.fullRowRequestID)
+					}
+				}
 				return m, nil
 			}
 		case "left", "h":
@@ -760,6 +806,7 @@ func renderWorkspaceRows(tableName string, columns []table.Column, rows []db.Dat
 
 func renderWorkspaceRowPeek(tableName string, columns []table.Column, row db.DataRow, rowNumber, width int) string {
 	var output strings.Builder
+	hasTruncated := false
 	output.WriteString(fmt.Sprintf("Row %d · %s\n\n", rowNumber, tableName))
 	labelWidth := 0
 	for _, column := range columns {
@@ -771,6 +818,7 @@ func renderWorkspaceRowPeek(tableName string, columns []table.Column, row db.Dat
 		if index >= len(columns) {
 			break
 		}
+		hasTruncated = hasTruncated || cell.Truncated
 		label := ansi.Truncate(columns[index].Title, labelWidth, "…")
 		labelPadding := strings.Repeat(" ", max(labelWidth-ansi.StringWidth(label), 0))
 		value := cell.DisplayText(true)
@@ -786,6 +834,9 @@ func renderWorkspaceRowPeek(tableName string, columns []table.Column, row db.Dat
 		for _, line := range wrappedLines[1:] {
 			output.WriteString(indent + line + "\n")
 		}
+	}
+	if hasTruncated {
+		output.WriteString("\nLoading the complete row from its primary key…\n")
 	}
 	output.WriteString("\nEsc returns to the data grid.")
 	return output.String()
